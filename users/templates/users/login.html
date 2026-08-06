@@ -1,0 +1,53 @@
+{% extends 'users/base2.html' %}
+
+{% block content %}
+
+    <div class="right">
+            <div class="right-page">
+                <div class="head2">
+                    <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
+                    <span>
+                        <p>Dash MFB</p>
+                        <p>-</p>
+                        <p>OPERATIONS PORTAL</p>
+                    </span>
+                </div>
+                <h1>Sign in to continue</h1>
+                <p>Use your Dash MFB corporate credentials. Sessions expire after 15 minutes of inactivity.</p>
+                <form>
+                    <div class="input-group">
+                        <label for="">Email</label>
+                        <div class="input-icon-wrap">
+                            <i class="ri-mail-line input-icon"></i>
+                            <input type="email"  placeholder=" name.surname@dash-mfb.com">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label for="">Password </label> 
+                        <div class="input-icon-wrap">
+                            <i class="ri-lock-2-line input-icon"></i>
+                            <input type="password" placeholder="**********">
+                        </div>
+                    </div>
+                    <div class="options">
+                        <a href="">Forgot password?</a>
+                    </div>
+                    <a href="./dashboard2.html">
+                        <button class="btn">Log in</button>
+                    </a>
+                    
+                </form>
+
+                <div class="divider">
+                    <span>OR</span>
+                </div>
+
+                <button class="google">
+                    <i class="ri-google-fill"></i>
+                    <p>Continue with Google</p>
+                </button>
+            </div>
+        </div>
+    </div>
+
+{% endblock content%}

@@ -1,0 +1,42 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <!-- <link rel="stylesheet" href="./style.css"> -->
+     <link rel="stylesheet" href="{% static 'css/login.css' %}">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div class="container">
+        <div class="left">
+            <div class="left-page">
+                <div class="head">
+                    <!-- <img src="DASH LOGO.jpg" alt=""> -->
+                     <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
+                    <span>
+                        <p>Dash MFB</p>
+                        <p>OPERATIONS CONTROL</p>
+                    </span>
+                </div>
+                <div class="left-bottom">
+                    <h2>Log, track, manage your operational task</h2>
+                    <li>Process Visibility</li>
+                    <li>Timestamped Accountability</li>
+                    <li>No missed Deadlines</li>
+                    <li>Workload Visibility</li>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    {% block content %}
+
+    {% endblock content %}
+</body>

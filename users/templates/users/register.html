@@ -1,0 +1,78 @@
+<!-- {% extends "users/base2.html" %} -->
+
+{% load static %}
+<!-- 
+    <div class="content-section">
+        <form method="POST">
+            {% csrf_token %}
+            <fieldset class="form-group">
+                <legend class="border-bottom mb-4">Join Today</legend>
+                {{ form }}
+            </fieldset>
+            <div class="form-group">
+                <button class="btn btn-outline-info" type="submit">Sign up</button>
+            </div>
+        </form>
+        <div class="border-top pt-3">
+            <small class="text-muted"> Already Have An Account?? <a class="ml-2" href="#"> Sign In </a>
+
+            </small>
+        </div>
+    </div> -->
+
+
+{% block content %}
+
+<div class="right">
+    <div class="right-page">
+        <h1>Create your account</h1>
+        <p>Sign up with your Dash MFB corporate email to get started.</p>
+
+        <form method="POST" id="signupForm">
+            {% csrf_token %}
+            <div class="input-group">
+                <label for="fullName">Full name</label>
+                <div class="input-icon-wrap">
+                    <i class="ri-user-line input-icon"></i>
+                    <input id="fullName" type="text" required placeholder="Tunde Bakare">
+                </div>
+            </div>
+            <div class="input-group">
+                <label for="email">Email</label>
+                <div class="input-icon-wrap">
+                    <i class="ri-mail-line input-icon"></i>
+                    <input id="email" type="email" required placeholder="name.surname@dash-mfb.com">
+                </div>
+            </div>
+            <div class="input-group">
+                <label for="password">Password</label>
+                <div class="input-icon-wrap">
+                    <i class="ri-lock-2-line input-icon"></i>
+                    <input id="password" type="password" required placeholder="At least 8 characters">
+                    <button type="button" id="togglePassword" class="input-icon-btn" aria-label="Show password">
+                        <i class="ri-eye-line"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="input-group">
+                <label for="confirmPassword">Confirm password</label>
+                <div class="input-icon-wrap">
+                    <i class="ri-lock-2-line input-icon"></i>
+                    <input id="confirmPassword" type="password" required placeholder="Re-enter your password">
+                </div>
+            </div>
+
+            <p id="signupError" class="error-text hidden"></p>
+
+            <button class="btn" type="submit">Create account</button>
+        </form>
+
+        <div class="options" style="justify-content:center; margin-top: 4px;">
+            <span>Already have an account? <a href="login.html">Log in</a></span>
+        </div>
+    </div>
+</div>
+
+<!-- <script src="./signup.js"></script> -->
+
+{% endblock content %}

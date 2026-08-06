@@ -1,0 +1,188 @@
+{% extends "portal/base.html" %}
+
+<!-- For mobile devices -->
+{% block content %}
+
+<main>
+    <!-- Board -->
+    <section class="tab-panel active" id="panel-board">
+        <div class="board-toolbar">
+            <div class="toolbar-left">
+                <select class="filter-select" id="filterProcess">
+                    <option value=""> All Process Types</option>
+                </select>
+                <select class="filter-select" id="filterAssignee">
+                    <option value="">All staffs</option>
+                </select>
+            </div>
+            <div class="toolbar-right">
+                <button class="toolbar-btn hide" id="newColumnBtn"> <i class="ri-add-fill"></i>Column</button>
+                <button class="toolbar-btn show" id="newTaskBtn"> <i class="ri-add-fill"></i>New Task </button>
+            </div>
+        </div>
+        <div class="board" id="boardColumns"></div>
+    </section>
+
+    <!-- Process Catalog -->
+    <section class="tab-panel" id="panel-catalog">
+        <div class="catalog-bar">
+            <div class="catalog-left">
+                <h2>Process Catalog</h2>
+                <p class="muted">Every operational process type yoiur team handles, with it's default turnaround target
+                    and
+                    checklist
+                </p>
+            </div>
+            <button class="toolbar-btn show" id="newProcessBtn"> <i class="ri-add-fill"></i> New Process Type </button>
+        </div>
+        <div id="catalogList" class="catalog-grid"></div>
+    </section>
+
+
+    <!-- Analytics page -->
+    <section class="tab-panel" id="panel-analytics">
+        <div class="analytics-page">
+            <div class="analytics-one">
+                <h2>Operational Analytics</h2>
+                <p>Throughput, turnaround, and overdue counts across the team</p>
+            </div>
+
+            <div class="analytics-two" id="statGrid"></div>
+
+            <div class="analytics-three">
+                <div class="processtype-tab">
+                    <h3>By process type</h3>
+                    <div id="byProcessTable" class="data-table">
+
+                    </div>
+                </div>
+                <div class="staffmember-tab">
+                    <h3>By staff member</h3>
+                    <div class="data-table" id="byStaffTable">
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- ----Task board columns -->
+<div class="task-box hidden" id="taskModal">
+    <div class="task-column">
+        <div class="header-task">
+            <h3 id="taskModalTitle">New Task</h3>
+            <button class="header-close" data-close="taskModal"> <i class="ri-close-line"></i> </button>
+        </div>
+        <form class="task-form" id="taskForm">
+            <input type="hidden" id="taskId">
+            <div class="task-title">
+                <label for="">Task title</label>
+                <input type="text" id="taskTitle" required placeholder="e.g. KYC review - Damola J">
+            </div>
+            <div class="task-type">
+                <label for=""> Process type</label>
+                <select id="taskProcessType" required></select>
+            </div>
+            <div class="task-title">
+                <label for="">Assignee</label>
+                <input type="text" id="taskAssignee" required placeholder="Staff name ">
+            </div>
+            <div class="task-type">
+                <label for="">Status</label>
+                <select name="" id="taskStatus" required id=""></select>
+            </div>
+        </form>
+        <div class="checklist-wrap hidden" id="taskChecklistWrap">
+            <h4 class="checklist-label">Standard Checklist</h4>
+            <div class="checklist" id="taskChecklist">
+
+            </div>
+        </div>
+        <div class="board-buttons">
+            <button type="button" class="toolbar-btn hide" id="deleteTaskBtn" style="display:none;">Delete task</button>
+            <div class="spacer"></div>
+            <button type="button" class="toolbar-btn hide" data-close="taskModal">Cancel</button>
+            <button type="submit" class="toolbar-btn show">Save task</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- PROCESS TYPE MODAL -->
+<div class="task-box hidden" id="processModal">
+    <div class="task-column">
+        <div class="header-task">
+            <h3 id="processModalTitle">New Process Type</h3>
+            <button class="header-close" data-close="processModal"><i class="ri-close-line"></i></button>
+        </div>
+        <form class="task-form" id="processForm">
+            <input type="hidden" id="processId">
+            <div class="task-title">
+                <label>Process name</label>
+                <input type="text" id="processName" required placeholder="e.g. Account Opening — Retail">
+            </div>
+            <div class="task-title">
+                <label>Default turnaround target</label>
+                <div class="task-hours">
+                    <div class="task-hours-1">
+                        <input type="number" id="processTargetValue" required min="0.5" step="0.5" value="24">
+                        <select id="processTargetUnit">
+                            <option value="hours">hours</option>
+                            <option value="days">days</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="checklist">
+                <label>Standard checklist (optional)</label>
+                <div class="checklist-editor" id="processChecklistItems"></div>
+                <button type="button" id="addChecklistItemBtn" class="toolbar-btn hide btn-check"><i
+                        class="ri-add-line"></i> Add checklist
+                    item</button>
+            </div>
+            <div class="board-buttons">
+                <button type="button" id="deleteProcessBtn" class="toolbar-btn hide" style="display:none;">Delete
+                    process type</button>
+                <div class="spacer"></div>
+                <button type="button" class="toolbar-btn hide" data-close="processModal">Cancel</button>
+                <button type="submit" class="toolbar-btn show">Save process type</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- --Add column tab -->
+<div class="task-box hidden" id="columnModal">
+    <div class="task-column task-column-sm">
+        <div class="header-task">
+            <h3>Add Column</h3>
+            <button class="header-close" data-close="columnModal"><i class="ri-close-line"></i></button>
+        </div>
+        <form id="columnForm" class="task-form">
+            <div class="task-title">
+                <label>Column name </label>
+                <input type="text" id="columnName" required placeholder="e.g. QA Sign-off">
+            </div>
+            <label class="checkbox-row">
+                <input type="checkbox" id="columnStarts">
+                <span>Moving a task here marks it as <strong>started</strong></span>
+            </label>
+            <label class="checkbox-row">
+                <input type="checkbox" id="columnCompletes">
+                <span>Moving a task here marks it as <strong>completed</strong></span>
+            </label>
+            <div class="board-buttons">
+                <div class="spacer"></div>
+                <button type="button" class="toolbar-btn hide" data-close="columnModal">Cancel</button>
+                <button type="submit" class="toolbar-btn show">Add column</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- <script src="./dashboard2.js"></script> -->
+
+
+{% endblock content %}

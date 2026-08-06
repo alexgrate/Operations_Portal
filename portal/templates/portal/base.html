@@ -1,0 +1,51 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dash MFB — Operations Portal</title>
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css" rel="stylesheet" />
+</head>
+
+<body>
+
+    <header class="top-bar">
+        <div class="head">
+            <!-- <img src="./DASH LOGO.jpg" alt=""> -->
+            <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
+            <div class="head-text">
+                <span class="head-name">Dash MFB</span>
+                <span class="head-sub">Operations Portal</span>
+            </div>
+        </div>
+
+        <nav class="tabs" role="tablist" >
+            <button class="tab-btn active" data-tab="board" role="tab">Task Board</button>
+            <button class="tab-btn" data-tab="catalog" role="tab">Process Catalog</button>
+            <button class="tab-btn" data-tab="analytics" role="tab">Analytics</button>
+        </nav>
+
+        <div class="alerts-wrap">
+            <button id="alertsBtn" class="alerts-btn" aria-label="Alerts">
+                <i class="ri-alarm-warning-line"></i>
+                <span id="alertsCount" class="alerts-count hidden">0</span>
+            </button>
+            <div id="alertsPanel" class="alerts-panel hidden">
+                <div class="alerts-panel-header">Escalation alerts</div>
+                <div id="alertsList" class="alerts-list"></div>
+            </div>
+        </div>
+
+    </header>
+
+    {% block content %}
+
+    {% endblock content %}
+
+</body>
+
+</html>
