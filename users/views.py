@@ -1,27 +1,24 @@
-from django.shortcuts import render, redirect
-from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
+from django.shortcuts import redirect, render
 
-# Create your views here.
+from .forms import SignUpForm
+
+
 def register(request):
+    if request.user.is_authenticated:
+        return redirect('portal-dashboard')
+
     if request.method == 'POST':
-        form = UserCreationForm(request.POST)
+        form = SignUpForm(request.POST)
         if form.is_valid():
-            form.save()
-            username = form.cleaned_data.get('username')
-            messages.success(request, 'Account created successfuly')
-            return redirect('portal-home')
+            user = form.save()
+            messages.success(
+                request,
+                f'Account created for {user.email}. Please log in to continue.',
+            )
+            return redirect('portal-login')
+        messages.error(request, 'We could not create your account. Please check the fields below.')
     else:
-        form = UserCreationForm()
+        form = SignUpForm()
+
     return render(request, 'users/register.html', {'form': form})
-
-
-def login(request):
-    return render(request, 'portal/login.html')
-
-def dashboard(request):
-    return render(request, 'portal/dashboard.html')
-# {'title': 'About'}
-
-
-

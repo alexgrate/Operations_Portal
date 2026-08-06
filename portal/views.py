@@ -1,58 +1,53 @@
-from django.shortcuts import render, redirect
-# from django.contrib.auth models import user
-from django.contrib.auth import authenticate, login, logout
+from django.contrib import messages
+from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_POST
 
 
-# posts = [
-#     {
-#         'author': 'coreyMS',
-#         'title': 'Portal Post',
-#         'content': 'First post content',
-#         'date_posted': 'August 27, 2018'
-#     },
-#     {
-#         'author': 'coreyMS',
-#         'title': 'Portal Post 2',
-#         'content': 'second post content',
-#         'date_posted': 'August 28, 2018'
-#     },
-#     {
-#         'author': 'coreyMS',
-#         'title': 'Portal Post 3',
-#         'content': 'third post content',
-#         'date_posted': 'August 29, 2018'
-#     }
-# ]
+def login_view(request):
+    if request.user.is_authenticated:
+        return redirect('portal-dashboard')
 
+    email = ''
 
-# Create your views here.
-def signup(request):
     if request.method == 'POST':
-        firt_name = request.POST['first_name']
-        last_name = request.POST['last_name']
-        email = request.POST['email']
-        password = request.POST['password']
-        password2 = request.POST['password2']
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '')
 
-        if password == password2:
-            if user.objects.filter(email=email).exists():
-                message.info(request, 'Email taken')
-                return redirect('signup')
-            else:
-                user = User.objects.create_user(email=email, password=password, first_name=first_name, last_name=last_name)
-                user.save()
-                message.success(request, 'Account created successfully')
-                return redirect('login')
+        if not email or not password:
+            messages.error(request, 'Please enter both your email and your password.')
         else:
-            message.info(request, 'Passwords do not match')
-            return redirect(request, 'signup')
-    return redirect(request, 'login.html')
+            user = authenticate(request, username=email, password=password)
+            if user is None:
+                messages.error(request, 'That email and password combination is not recognised.')
+            else:
+                auth_login(request, user)
+                messages.success(request, f'Welcome back, {user.get_short_name() or user.get_username()}.')
+                return redirect(_safe_next(request) or reverse('portal-dashboard'))
 
-             
+    return render(request, 'users/login.html', {'email': email})
 
-def login(request):
-    return render(request, 'portal/login.html')
 
+def _safe_next(request):
+    """Return ?next= only when it points back at this site."""
+    target = request.POST.get('next') or request.GET.get('next')
+    if target and url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return target
+    return None
+
+
+@require_POST
+def logout_view(request):
+    auth_logout(request)
+    messages.success(request, 'You have been logged out.')
+    return redirect('portal-login')
+
+
+@login_required
 def dashboard(request):
     return render(request, 'portal/dashboard.html')
-# {'title': 'About'}
