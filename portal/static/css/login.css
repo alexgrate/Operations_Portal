@@ -132,11 +132,17 @@ h1{
     height: 40px;
     border-radius: 9px;
 } */
-/* .input-group{
+.input-group{
     display: flex;
     flex-direction: column;
-} */
+    margin-bottom: 4px;
+}
 
+.input-group label{
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: #334155;
+}
 
 input{
     display: flex;
@@ -167,6 +173,147 @@ input{
     pointer-events: none; /* clicks pass through to the input underneath */
 }
 
+/* Show/hide password button, sits on the right edge of the input */
+.input-icon-btn{
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    padding: 4px;
+    line-height: 1;
+    cursor: pointer;
+    color: #4f1a60;
+    font-size: 16px;
+}
+
+.input-icon-btn:hover{
+    color: #370146;
+}
+
+/* Leave room for the toggle so long values don't run underneath it */
+.input-icon-wrap input[type="password"],
+.input-icon-wrap input[type="text"]{
+    padding-right: 40px;
+}
+
+/* Per-field validation errors */
+.error-text{
+    color: #b3261e;
+    font-size: 12px;
+    margin: 0 0 8px;
+}
+
+.right-page p.error-text{
+    color: #b3261e;
+    font-size: 12px;
+    margin-bottom: 8px;
+}
+
+/* Form-wide messages (django.contrib.messages) */
+.messages{
+    margin-bottom: 4px;
+}
+
+.form-alert{
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 16px;
+    background: #eef2f7;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+}
+
+.right-page p.form-alert{
+    font-size: 13px;
+    margin-bottom: 16px;
+    color: #334155;
+}
+
+.form-alert--success{
+    background: #e8f5ec;
+    border-color: #a9d8ba;
+}
+
+.right-page p.form-alert--success{
+    color: #1b6b3a;
+}
+
+.form-alert--error{
+    background: #fdecea;
+    border-color: #f5c2bd;
+}
+
+.right-page p.form-alert--error{
+    color: #b3261e;
+}
+
+.form-alert--warning{
+    background: #fff6e5;
+    border-color: #f3d9a4;
+}
+
+.right-page p.form-alert--warning{
+    color: #8a5a00;
+}
+
+.form-alert--info,
+.form-alert--debug{
+    background: #eef2f7;
+    border-color: #cbd5e1;
+}
+
+.right-page p.form-alert--info,
+.right-page p.form-alert--debug{
+    color: #334155;
+}
+
+/* An <a> that should look like the primary button */
+.btn-link{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+
+.field-hint{
+    font-size: 11px;
+    color: #64748b;
+    margin: 0 0 10px;
+}
+
+.right-page p.field-hint{
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 10px;
+}
+
+/* "Don't have an account? Sign up" / "Already have an account? Log in" */
+.auth-switch{
+    text-align: center;
+    margin-top: 18px;
+}
+
+.right-page p.auth-switch{
+    font-size: 13px;
+    margin-bottom: 0;
+}
+
+.auth-switch a{
+    color: #4f1a60;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.auth-switch a:hover{
+    text-decoration: underline;
+}
+
+.hidden{
+    display: none;
+}
+
 .options{
     /* display: flex; */
     justify-content: space-between;
@@ -175,6 +322,7 @@ input{
 }
 .options a{
     text-decoration: none;
+    color: #4f1a60;
 }
 .remember{
     display: flex;

@@ -6,8 +6,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-    <!-- <link rel="stylesheet" href="./style.css"> -->
+    <title>{% block title %}Dash MFB Operations Portal{% endblock title %}</title>
      <link rel="stylesheet" href="{% static 'css/login.css' %}">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css" rel="stylesheet" />
 </head>
@@ -17,7 +16,6 @@
         <div class="left">
             <div class="left-page">
                 <div class="head">
-                    <!-- <img src="DASH LOGO.jpg" alt=""> -->
                      <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
                     <span>
                         <p>Dash MFB</p>
@@ -33,10 +31,25 @@
                 </div>
             </div>
         </div>
+
+        {% block content %}
+
+        {% endblock content %}
     </div>
 
-
-    {% block content %}
-
-    {% endblock content %}
+    <script>
+        document.querySelectorAll('[data-toggle-password]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var input = document.getElementById(button.dataset.togglePassword);
+                if (!input) return;
+                var showing = input.type === 'text';
+                input.type = showing ? 'password' : 'text';
+                button.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+                var icon = button.querySelector('i');
+                if (icon) icon.className = showing ? 'ri-eye-line' : 'ri-eye-off-line';
+            });
+        });
+    </script>
 </body>
+
+</html>

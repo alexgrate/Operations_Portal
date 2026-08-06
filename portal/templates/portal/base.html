@@ -15,7 +15,6 @@
 
     <header class="top-bar">
         <div class="head">
-            <!-- <img src="./DASH LOGO.jpg" alt=""> -->
             <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
             <div class="head-text">
                 <span class="head-name">Dash MFB</span>
@@ -40,7 +39,28 @@
             </div>
         </div>
 
+        <div class="user-wrap">
+            <span class="user-name">{{ user.get_full_name|default:user.username }}</span>
+            <form method="post" action="{% url 'portal-logout' %}">
+                {% csrf_token %}
+                <button type="submit" class="logout-btn" title="Log out">
+                    <i class="ri-logout-box-r-line"></i>
+                </button>
+            </form>
+        </div>
+
     </header>
+
+    {% if messages %}
+        <div class="page-messages">
+            {% for message in messages %}
+                <p class="page-alert page-alert--{{ message.tags|default:'info' }}"
+                   role="{% if message.level >= 30 %}alert{% else %}status{% endif %}">
+                    {{ message }}
+                </p>
+            {% endfor %}
+        </div>
+    {% endif %}
 
     {% block content %}
 

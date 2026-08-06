@@ -10,20 +10,30 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Secrets and per-machine configuration live in .env, which is gitignored.
+# See .env.example for the keys this project expects.
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%4uy2xw7yve5r$#@9oniicqrbrtk$-k_ugw#_09n#kxrmp$xew'
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-%4uy2xw7yve5r$#@9oniicqrbrtk$-k_ugw#_09n#kxrmp$xew',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes', 'on')
 
 ALLOWED_HOSTS = []
 
@@ -58,7 +68,7 @@ ROOT_URLCONF = 'Operations_Portal.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': ['templates'],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -86,6 +96,39 @@ DATABASES = {
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
+
+AUTHENTICATION_BACKENDS = [
+    'users.backends.EmailOrUsernameBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+LOGIN_URL = 'portal-login'
+LOGIN_REDIRECT_URL = 'portal-dashboard'
+LOGOUT_REDIRECT_URL = 'portal-login'
+
+# Password-reset email, sent through the Microsoft Graph API.
+# Office 365 usually has SMTP AUTH switched off, so a client-credentials app
+# registration is used instead of Django's SMTP backend. Credentials come from
+# .env; see users/email_backends.py.
+MS_GRAPH_TENANT_ID = os.environ.get('MS_GRAPH_TENANT_ID', '')
+MS_GRAPH_CLIENT_ID = os.environ.get('MS_GRAPH_CLIENT_ID', '')
+MS_GRAPH_CLIENT_SECRET = os.environ.get('MS_GRAPH_CLIENT_SECRET', '')
+MS_GRAPH_SENDER = os.environ.get('MS_GRAPH_SENDER', '')
+
+if MS_GRAPH_TENANT_ID and MS_GRAPH_CLIENT_ID and MS_GRAPH_CLIENT_SECRET and MS_GRAPH_SENDER:
+    EMAIL_BACKEND = 'users.email_backends.MicrosoftGraphEmailBackend'
+    DEFAULT_FROM_EMAIL = MS_GRAPH_SENDER
+else:
+    # No Graph credentials configured - print the email to the runserver
+    # terminal instead, so password reset still works locally.
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    DEFAULT_FROM_EMAIL = 'Dash MFB Operations Portal <no-reply@dash-mfb.com>'
+
+PASSWORD_RESET_TIMEOUT = 60 * 60 * 3
+
+
+SESSION_COOKIE_AGE = 15 * 60
+SESSION_SAVE_EVERY_REQUEST = True
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -119,7 +162,3 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
-
-STATICFILES_DIRS = [
-    BASE_DIR / "static",
-]

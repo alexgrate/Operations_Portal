@@ -1,78 +1,100 @@
-<!-- {% extends "users/base2.html" %} -->
-
+{% extends 'users/base2.html' %}
 {% load static %}
-<!-- 
-    <div class="content-section">
-        <form method="POST">
-            {% csrf_token %}
-            <fieldset class="form-group">
-                <legend class="border-bottom mb-4">Join Today</legend>
-                {{ form }}
-            </fieldset>
-            <div class="form-group">
-                <button class="btn btn-outline-info" type="submit">Sign up</button>
-            </div>
-        </form>
-        <div class="border-top pt-3">
-            <small class="text-muted"> Already Have An Account?? <a class="ml-2" href="#"> Sign In </a>
 
-            </small>
-        </div>
-    </div> -->
-
+{% block title %}Create your account — Dash MFB Operations Portal{% endblock title %}
 
 {% block content %}
 
 <div class="right">
     <div class="right-page">
+        <div class="head2">
+            <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
+            <span>
+                <p>Dash MFB</p>
+                <p>-</p>
+                <p>OPERATIONS PORTAL</p>
+            </span>
+        </div>
+
         <h1>Create your account</h1>
         <p>Sign up with your Dash MFB corporate email to get started.</p>
 
-        <form method="POST" id="signupForm">
+        {% include 'users/_messages.html' %}
+
+        {% if form.non_field_errors %}
+            <p class="form-alert form-alert--error" role="alert">
+                {% for error in form.non_field_errors %}{{ error }} {% endfor %}
+            </p>
+        {% endif %}
+
+        <form method="post" action="{% url 'register' %}" novalidate>
             {% csrf_token %}
+
             <div class="input-group">
-                <label for="fullName">Full name</label>
+                <label for="{{ form.full_name.id_for_label }}">Full name</label>
                 <div class="input-icon-wrap">
                     <i class="ri-user-line input-icon"></i>
-                    <input id="fullName" type="text" required placeholder="Tunde Bakare">
+                    {{ form.full_name }}
                 </div>
+                {% for error in form.full_name.errors %}
+                    <p class="error-text">{{ error }}</p>
+                {% endfor %}
             </div>
+
             <div class="input-group">
-                <label for="email">Email</label>
+                <label for="{{ form.email.id_for_label }}">Email</label>
                 <div class="input-icon-wrap">
                     <i class="ri-mail-line input-icon"></i>
-                    <input id="email" type="email" required placeholder="name.surname@dash-mfb.com">
+                    {{ form.email }}
                 </div>
+                {% for error in form.email.errors %}
+                    <p class="error-text">{{ error }}</p>
+                {% endfor %}
             </div>
+
             <div class="input-group">
-                <label for="password">Password</label>
+                <label for="{{ form.password1.id_for_label }}">Password</label>
                 <div class="input-icon-wrap">
                     <i class="ri-lock-2-line input-icon"></i>
-                    <input id="password" type="password" required placeholder="At least 8 characters">
-                    <button type="button" id="togglePassword" class="input-icon-btn" aria-label="Show password">
+                    {{ form.password1 }}
+                    <button type="button" class="input-icon-btn"
+                            data-toggle-password="{{ form.password1.id_for_label }}"
+                            aria-label="Show password">
                         <i class="ri-eye-line"></i>
                     </button>
                 </div>
-            </div>
-            <div class="input-group">
-                <label for="confirmPassword">Confirm password</label>
-                <div class="input-icon-wrap">
-                    <i class="ri-lock-2-line input-icon"></i>
-                    <input id="confirmPassword" type="password" required placeholder="Re-enter your password">
-                </div>
+                {% for error in form.password1.errors %}
+                    <p class="error-text">{{ error }}</p>
+                {% endfor %}
+                <p class="field-hint">
+                    At least 8 characters. Can't be entirely numeric, a common password,
+                    or too similar to your name or email.
+                </p>
             </div>
 
-            <p id="signupError" class="error-text hidden"></p>
+            <div class="input-group">
+                <label for="{{ form.password2.id_for_label }}">Confirm password</label>
+                <div class="input-icon-wrap">
+                    <i class="ri-lock-2-line input-icon"></i>
+                    {{ form.password2 }}
+                    <button type="button" class="input-icon-btn"
+                            data-toggle-password="{{ form.password2.id_for_label }}"
+                            aria-label="Show password">
+                        <i class="ri-eye-line"></i>
+                    </button>
+                </div>
+                {% for error in form.password2.errors %}
+                    <p class="error-text">{{ error }}</p>
+                {% endfor %}
+            </div>
 
             <button class="btn" type="submit">Create account</button>
         </form>
 
-        <div class="options" style="justify-content:center; margin-top: 4px;">
-            <span>Already have an account? <a href="login.html">Log in</a></span>
-        </div>
+        <p class="auth-switch">
+            Already have an account? <a href="{% url 'portal-login' %}">Log in</a>
+        </p>
     </div>
 </div>
-
-<!-- <script src="./signup.js"></script> -->
 
 {% endblock content %}
