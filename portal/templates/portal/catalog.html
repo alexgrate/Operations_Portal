@@ -1,0 +1,78 @@
+{% extends 'portal/base.html' %}
+{% load static %}
+{% block title %}Process Catalog — Dash MFB{% endblock %}
+
+{% block content %}
+<section class="tab-panel active">
+    <div class="catalog-bar">
+        <div class="catalog-left">
+            <h2>Process Catalog</h2>
+            <p class="muted">Every operational process type your team handles, with its default turnaround target and checklist.</p>
+        </div>
+        <button type="button" class="toolbar-btn show" onclick="document.getElementById('processModal').classList.remove('hidden')">
+            <i class="ri-add-fill"></i> New Process Type
+        </button>
+    </div>
+
+    <div class="catalog-grid">
+        {% for pt in process_types %}
+        <div class="catalog-card">
+            <h4>{{ pt.name }}</h4>
+            <span class="catalog-target">Target: {{ pt.target_hours }}h</span>
+            <div class="catalog-checklist">
+                {% if pt.checklist %}
+                    Checklist ({{ pt.checklist|length }}):
+                    <ul>
+                        {% for item in pt.checklist|slice:":3" %}<li>{{ item }}</li>{% endfor %}
+                        {% if pt.checklist|length > 3 %}<li>+{{ pt.checklist|length|add:"-3" }} more</li>{% endif %}
+                    </ul>
+                {% else %}
+                    No standard checklist
+                {% endif %}
+            </div>
+            <form method="post" action="{% url 'process-type-delete' pt.id %}" style="margin-top:10px;"
+                  onsubmit="return confirm('Delete this process type?');">
+                {% csrf_token %}
+                <button type="submit" class="toolbar-btn hide" style="color:var(--overdue-fg); border-color:var(--overdue-bg);">Delete</button>
+            </form>
+        </div>
+        {% empty %}
+        <p class="data-empty">No process types yet. Add one to get started.</p>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- NEW PROCESS TYPE MODAL -->
+<div class="task-box hidden" id="processModal">
+    <div class="task-column">
+        <div class="header-task">
+            <h3>New Process Type</h3>
+            <button class="header-close" type="button" onclick="document.getElementById('processModal').classList.add('hidden')">
+                <i class="ri-close-line"></i>
+            </button>
+        </div>
+        <form method="post" action="{% url 'process-type-create' %}" class="task-form">
+            {% csrf_token %}
+            <div class="task-title">
+                <label for="id_name">Process name</label>
+                <input type="text">
+                {{ form.name }}
+            </div>
+            <div class="task-title">
+                <label for="id_target_hours">Default turnaround target (hours)</label>
+                {{ form.target_hours }}
+            </div>
+            <div class="checklist">
+                <label for="id_checklist_text">Standard checklist (optional)</label>
+                {{ form.checklist_text }}
+            </div>
+            <div class="board-buttons">
+                <div class="spacer"></div>
+                <button type="button" class="toolbar-btn hide" onclick="document.getElementById('processModal').classList.add('hidden')">Cancel</button>
+                <button type="submit" class="toolbar-btn show">Save process type</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
