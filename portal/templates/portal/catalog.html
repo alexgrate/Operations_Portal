@@ -18,7 +18,7 @@
         {% for pt in process_types %}
         <div class="catalog-card">
             <h4>{{ pt.name }}</h4>
-            <span class="catalog-target">Target: {{ pt.target_hours }}h</span>
+            <span class="catalog-target">Target: {{ pt.target_hours|floatformat:"-1" }}h</span>
             <div class="catalog-checklist">
                 {% if pt.checklist %}
                     Checklist ({{ pt.checklist|length }}):
@@ -30,10 +30,10 @@
                     No standard checklist
                 {% endif %}
             </div>
-            <form method="post" action="{% url 'process-type-delete' pt.id %}" style="margin-top:10px;"
+            <form method="post" action="{% url 'process-type-delete' pt.id %}" class="catalog-card-actions"
                   onsubmit="return confirm('Delete this process type?');">
                 {% csrf_token %}
-                <button type="submit" class="toolbar-btn hide" style="color:var(--overdue-fg); border-color:var(--overdue-bg);">Delete</button>
+                <button type="submit" class="toolbar-btn btn-danger">Delete</button>
             </form>
         </div>
         {% empty %}
@@ -43,7 +43,7 @@
 </section>
 
 <!-- NEW PROCESS TYPE MODAL -->
-<div class="task-box hidden" id="processModal">
+<div class="task-box {% if not open_process_modal %}hidden{% endif %}" id="processModal">
     <div class="task-column">
         <div class="header-task">
             <h3>New Process Type</h3>
@@ -53,18 +53,23 @@
         </div>
         <form method="post" action="{% url 'process-type-create' %}" class="task-form">
             {% csrf_token %}
+            {% for error in form.non_field_errors %}
+                <p class="field-error">{{ error }}</p>
+            {% endfor %}
             <div class="task-title">
-                <label for="id_name">Process name</label>
-                <input type="text">
+                <label for="{{ form.name.id_for_label }}">Process name</label>
                 {{ form.name }}
+                {% for error in form.name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <div class="task-title">
-                <label for="id_target_hours">Default turnaround target (hours)</label>
+                <label for="{{ form.target_hours.id_for_label }}">Default turnaround target (hours)</label>
                 {{ form.target_hours }}
+                {% for error in form.target_hours.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <div class="checklist">
-                <label for="id_checklist_text">Standard checklist (optional)</label>
+                <label for="{{ form.checklist_text.id_for_label }}">Standard checklist (optional)</label>
                 {{ form.checklist_text }}
+                {% for error in form.checklist_text.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <div class="board-buttons">
                 <div class="spacer"></div>

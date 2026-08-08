@@ -66,8 +66,13 @@
                     <div class="task-process">{{ task.process_type.name }}</div>
                     <div class="task-meta">
                         <div class="task-assignee">
-                            <span class="assignee-avatar">{{ task.assignee.first_name|slice:":1"|upper }}{{ task.assignee.last_name|slice:":1"|upper }}</span>
-                            {{ task.assignee.get_full_name|default:task.assignee.username }}
+                            {% if task.assignee %}
+                                <span class="assignee-avatar">{{ task.assignee.first_name|slice:":1"|upper }}{{ task.assignee.last_name|slice:":1"|upper }}</span>
+                                {{ task.assignee.get_full_name|default:task.assignee.username }}
+                            {% else %}
+                                <span class="assignee-avatar assignee-avatar-none">?</span>
+                                <span class="muted">Unassigned</span>
+                            {% endif %}
                         </div>
                         <span class="badge badge-{{ task.deadline_status }}">
                             {% if task.deadline_status == 'on-track' %}On track
@@ -103,7 +108,7 @@
      The show/hide is plain JS (just toggling a CSS class — no data
      involved), but the SAVE action is a normal form POST to a Django
      view, which redirects back here when done. -->
-<div class="task-box hidden" id="taskModal">
+<div class="task-box {% if not open_task_modal %}hidden{% endif %}" id="taskModal">
     <div class="task-column">
         <div class="header-task">
             <h3>New Task</h3>
@@ -113,21 +118,28 @@
         </div>
         <form method="post" action="{% url 'task-create' %}" class="task-form">
             {% csrf_token %}
+            {% for error in task_form.non_field_errors %}
+                <p class="field-error">{{ error }}</p>
+            {% endfor %}
             <div class="task-title">
-                <label for="id_title">Task title</label>
+                <label for="{{ task_form.title.id_for_label }}">Task title</label>
                 {{ task_form.title }}
+                {% for error in task_form.title.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <div class="task-type">
-                <label for="id_process_type">Process type</label>
+                <label for="{{ task_form.process_type.id_for_label }}">Process type</label>
                 {{ task_form.process_type }}
+                {% for error in task_form.process_type.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <div class="task-title">
-                <label for="id_assignee">Assignee</label>
+                <label for="{{ task_form.assignee.id_for_label }}">Assignee</label>
                 {{ task_form.assignee }}
+                {% for error in task_form.assignee.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <div class="task-type">
-                <label for="id_status">Status</label>
+                <label for="{{ task_form.status.id_for_label }}">Status</label>
                 {{ task_form.status }}
+                {% for error in task_form.status.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <div class="board-buttons">
                 <div class="spacer"></div>
@@ -139,7 +151,7 @@
 </div>
 
 <!-- ADD COLUMN MODAL -->
-<div class="task-box hidden" id="columnModal">
+<div class="task-box {% if not open_column_modal %}hidden{% endif %}" id="columnModal">
     <div class="task-column task-column-sm">
         <div class="header-task">
             <h3>Add Column</h3>
@@ -149,9 +161,13 @@
         </div>
         <form method="post" action="{% url 'column-create' %}" class="task-form">
             {% csrf_token %}
+            {% for error in column_form.non_field_errors %}
+                <p class="field-error">{{ error }}</p>
+            {% endfor %}
             <div class="task-title">
-                <label for="id_name">Column name</label>
+                <label for="{{ column_form.name.id_for_label }}">Column name</label>
                 {{ column_form.name }}
+                {% for error in column_form.name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
             <label class="checkbox-row">
                 {{ column_form.starts }}
