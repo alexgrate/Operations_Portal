@@ -37,17 +37,24 @@
         <div class="analytics-three">
             <div class="processtype-tab">
                 <h3>By process type</h3>
+                {% if by_process %}
+                <div class="chart-legend">
+                    <span><i class="legend-swatch legend-swatch--ontime"></i>Within target</span>
+                    <span><i class="legend-swatch legend-swatch--overdue"></i>Overdue</span>
+                </div>
+                {% endif %}
                 <div class="data-table">
                     {% for row in by_process %}
                     <div class="data-row">
                         <div class="data-row-top">
                             <span class="data-row-name">{{ row.name }}</span>
-                            <span class="data-row-stats">{{ row.count }} tasks · avg {% if row.avg_hours %}{{
-                                row.avg_hours }}h{% else %}—{% endif %} · {{ row.overdue }} overdue</span>
+                            <span class="data-row-stats">{{ row.count }} task{{ row.count|pluralize }} · avg {% if row.avg_hours %}{{ row.avg_hours }}h{% else %}—{% endif %} · {{ row.overdue }} overdue</span>
                         </div>
                         <div class="bar-track">
-                            <div class="bar-fill {% if row.overdue %}overdue{% endif %}"
-                                style="width: {% widthratio row.count by_process.0.count 100 %}%;"></div>
+                            <span class="bar-fill" style="width: {{ row.pct }}%;"></span>
+                            {% if row.overdue %}
+                            <span class="bar-fill bar-fill--overdue" style="width: {{ row.overdue_pct }}%;"></span>
+                            {% endif %}
                         </div>
                     </div>
                     {% empty %}
@@ -58,17 +65,24 @@
 
             <div class="staffmember-tab">
                 <h3>By staff member</h3>
+                {% if by_staff %}
+                <div class="chart-legend">
+                    <span><i class="legend-swatch legend-swatch--ontime"></i>Within target</span>
+                    <span><i class="legend-swatch legend-swatch--overdue"></i>Overdue</span>
+                </div>
+                {% endif %}
                 <div class="data-table">
                     {% for row in by_staff %}
                     <div class="data-row">
                         <div class="data-row-top">
                             <span class="data-row-name">{{ row.name }}</span>
-                            <span class="data-row-stats">{{ row.count }} tasks · avg {% if row.avg_hours %}{{
-                                row.avg_hours }}h{% else %}—{% endif %} · {{ row.overdue }} overdue</span>
+                            <span class="data-row-stats">{{ row.count }} task{{ row.count|pluralize }} · avg {% if row.avg_hours %}{{ row.avg_hours }}h{% else %}—{% endif %} · {{ row.overdue }} overdue</span>
                         </div>
                         <div class="bar-track">
-                            <div class="bar-fill {% if row.overdue %}overdue{% endif %}"
-                                style="width: {% widthratio row.count by_staff.0.count 100 %}%;"></div>
+                            <span class="bar-fill" style="width: {{ row.pct }}%;"></span>
+                            {% if row.overdue %}
+                            <span class="bar-fill bar-fill--overdue" style="width: {{ row.overdue_pct }}%;"></span>
+                            {% endif %}
                         </div>
                     </div>
                     {% empty %}

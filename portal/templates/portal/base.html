@@ -6,7 +6,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dash MFB — Operations Portal</title>
+    <title>{% block title %}Dash MFB — Operations Portal{% endblock title %}</title>
     <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css" rel="stylesheet" />
 </head>
@@ -23,20 +23,13 @@
         </div>
 
         <nav class="tabs" role="tablist">
-            <a class="tab-btn {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"
+            <a class="tab-btn {% if active_tab == 'board' %}active{% endif %}"
                 href="{% url 'portal-dashboard' %}">Task Board</a>
-            <a class="tab-btn {% if request.resolver_match.url_name == 'catalog' %}active{% endif %}"
+            <a class="tab-btn {% if active_tab == 'catalog' %}active{% endif %}"
                 href="{% url 'portal-catalog' %}">Process Catalog</a>
-            <a class="tab-btn {% if request.resolver_match.url_name == 'analytics' %}active{% endif %}"
+            <a class="tab-btn {% if active_tab == 'analytics' %}active{% endif %}"
                 href="{% url 'portal-analytics' %}">Analytics</a>
         </nav>
-
-        <!-- <div class="alerts-wrap">
-            <span style="color:white; font-size:13px; white-space:nowrap;">
-                Hi, {{ request.user.first_name|default:request.user.username }}
-                — <a href="{% url 'portal-logout' %}" style="color:white;">Log out</a>
-            </span>
-        </div> -->
 
         <div class="user-wrap">
             <span class="user-name">{{ user.get_full_name|default:user.username }}</span>
@@ -62,9 +55,11 @@
     
     {% endif %}
 
-    {% block content %}
+    <main>
+        {% block content %}
 
-    {% endblock content %}
+        {% endblock content %}
+    </main>
 
 </body>
 
