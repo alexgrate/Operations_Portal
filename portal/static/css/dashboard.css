@@ -99,6 +99,7 @@ img{
     cursor: pointer;
     font-size: 14px;
     font-weight: 500;
+    text-decoration: none;
 }
 
 .tab-btn:hover{
@@ -790,23 +791,24 @@ main{
         order: 2; 
         margin-left: auto; 
     }
-    /* .tabs{
+    .tabs{
         order: 3;
         margin-left: 0;
         overflow-x: auto;
         width: 100%;
         -webkit-overflow-scrolling: touch;
-    } */
-    /* .tabs::-webkit-scrollbar{ display: none; } */
+    } 
+    .tabs::-webkit-scrollbar{ display: none; }
     .tab-btn{ 
         flex: 0 0 auto; 
         white-space: nowrap; 
     }
     .tab-panel{
-        /* display: flex; */
+        display: flex;
         flex-direction: column;
         width: 100%;
         gap: 5px;
+        padding: 10px;
     }
     .tab-panel .toolbar-btn{
         width: 100%;
@@ -827,8 +829,12 @@ main{
         grid-template-columns: 1fr 1fr;
     }
     .board-toolbar{
-    flex-direction: column;
-    align-items: stretch;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        margin-bottom: 16px;
+        gap: 12px;
+        flex-wrap: wrap;
     }
     .catalog-bar{
     flex-direction: column;

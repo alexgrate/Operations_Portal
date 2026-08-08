@@ -3,8 +3,61 @@ from django.contrib.auth.models import User
 
 # Create your models here.
 
-# class Signup(models.Models):
-    
 
-# class Login(models.Model):
-#     title = models.CharField(max_lenght=100)
+class ProcessType(models.Model):
+    """Equivalent to one object in your JS `processTypes` array."""
+    name = models.CharField(max_length=200)
+    # Always stored in hours, same convention as your JS (days get
+    # converted to hours before saving, on the frontend).
+    target_hours = models.FloatField()
+    # JSONField lets us store a plain list of strings, like your
+    # `checklist: ['Verify ID document', ...]` array, without needing
+    # a separate table for it.
+    checklist = models.JSONField(default=list, blank=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Column(models.Model):
+    """Equivalent to one object in your JS `columns` array."""
+    name = models.CharField(max_length=100)
+    starts = models.BooleanField(default=False)
+    completes = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)  # controls left-to-right board order
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return self.name
+
+
+class Task(models.Model):
+    """Equivalent to one object in your JS `tasks` array."""
+    title = models.CharField(max_length=300)
+
+    # ForeignKey = "this task points at one row in another table."
+    # on_delete=PROTECT means: you can't delete a ProcessType or Column
+    # while tasks still reference it — Django will block it and tell you,
+    # rather than silently orphaning data.
+    process_type = models.ForeignKey(ProcessType, on_delete=models.PROTECT, related_name='tasks')
+    status = models.ForeignKey(Column, on_delete=models.PROTECT, related_name='tasks')
+
+    # SET_NULL here instead: if a staff account is deleted, we keep the
+    # task but blank out who it was assigned to, rather than blocking
+    # the deletion entirely.
+    assignee = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_tasks')
+
+    # auto_now_add=True: Django stamps this automatically the moment the
+    # row is created — you never set it yourself, same idea as
+    # `createdAt: Date.now()` in your JS.
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # Mirrors your `checklistDone: { "0": true, "1": false }` object.
+    checklist_done = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return self.title

@@ -1,0 +1,82 @@
+{% extends 'portal/base.html' %}
+
+{% block title %}Analytics — Dash MFB{% endblock %}
+
+{% block content %}
+<section class="tab-panel active">
+    <div class="analytics-page">
+        <div class="analytics-one">
+            <h2>Operational Analytics</h2>
+            <p>Throughput, turnaround, and overdue counts across the team</p>
+        </div>
+
+        <div class="analytics-two" id="statGrid">
+            <div class="stat-card">
+                <div class="stat-value">{{ total }}</div>
+                <div class="stat-label">Total tasks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ completed_count }}</div>
+                <div class="stat-label">Completed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ overdue_count }}</div>
+                <div class="stat-label">Overdue now</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ at_risk_count }}</div>
+                <div class="stat-label">At risk now</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{% if avg_turnaround_hours %}{{ avg_turnaround_hours }}h{% else %}—{% endif %}
+                </div>
+                <div class="stat-label">Avg. turnaround</div>
+            </div>
+        </div>
+
+        <div class="analytics-three">
+            <div class="processtype-tab">
+                <h3>By process type</h3>
+                <div class="data-table">
+                    {% for row in by_process %}
+                    <div class="data-row">
+                        <div class="data-row-top">
+                            <span class="data-row-name">{{ row.name }}</span>
+                            <span class="data-row-stats">{{ row.count }} tasks · avg {% if row.avg_hours %}{{
+                                row.avg_hours }}h{% else %}—{% endif %} · {{ row.overdue }} overdue</span>
+                        </div>
+                        <div class="bar-track">
+                            <div class="bar-fill {% if row.overdue %}overdue{% endif %}"
+                                style="width: {% widthratio row.count by_process.0.count 100 %}%;"></div>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <p class="data-empty">No data yet.</p>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="staffmember-tab">
+                <h3>By staff member</h3>
+                <div class="data-table">
+                    {% for row in by_staff %}
+                    <div class="data-row">
+                        <div class="data-row-top">
+                            <span class="data-row-name">{{ row.name }}</span>
+                            <span class="data-row-stats">{{ row.count }} tasks · avg {% if row.avg_hours %}{{
+                                row.avg_hours }}h{% else %}—{% endif %} · {{ row.overdue }} overdue</span>
+                        </div>
+                        <div class="bar-track">
+                            <div class="bar-fill {% if row.overdue %}overdue{% endif %}"
+                                style="width: {% widthratio row.count by_staff.0.count 100 %}%;"></div>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <p class="data-empty">No data yet.</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
