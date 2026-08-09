@@ -7,7 +7,7 @@ Account signup lives in users/forms.py, not here.
 """
 from django import forms
 
-from .models import Column, ProcessType, Task
+from .models import Column, ProcessType, Task, Comment
 
 
 class TaskForm(forms.ModelForm):
@@ -48,3 +48,10 @@ class ColumnForm(forms.ModelForm):
         widgets = {
             'name': forms.TextInput(attrs={'placeholder': 'e.g. QA Sign-off'}),
         }
+
+
+class CommentForm(forms.ModelForm):
+    class Meta:
+        model = Comment
+        fields = ['body']
+        widgets = {'body': forms.Textarea(attrs={'rows': 2, 'placeholder': 'Add a comment...'})}

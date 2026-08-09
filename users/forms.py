@@ -45,6 +45,10 @@ class SignUpForm(UserCreationForm):
         email = self.cleaned_data['email'].strip().lower()
         if len(email) > 150:
             raise forms.ValidationError('That email address is too long.')
+        if not email.endswith('@dash-mfb.com'):
+            raise forms.ValidationError(
+            'Only Dash MFB corporate email addresses are allowed.'
+        )
         if User.objects.filter(Q(email__iexact=email) | Q(username__iexact=email)).exists():
             raise forms.ValidationError('An account with this email already exists.')
         return email

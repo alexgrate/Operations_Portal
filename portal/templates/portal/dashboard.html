@@ -60,12 +60,13 @@
             <div class="column-body">
                 {% for task in entry.tasks %}
                 <div class="task-card">
-                    <div class="task-card-top">
-                        <div class="task-title">{{ task.title }}</div>
-                    </div>
-                    <div class="task-process">{{ task.process_type.name }}</div>
-                    <div class="task-meta">
-                        <div class="task-assignee">
+                    <a href="{% url 'task-edit' task.id %}" style="text-decoration:none; color:inherit; display:block;">
+                        <div class="task-card-top">
+                            <div class="task-title">{{ task.title }}</div>
+                        </div>
+                        <div class="task-process">{{ task.process_type.name }}</div>
+                        <div class="task-meta">
+                            <div class="task-assignee">
                             {% if task.assignee %}
                                 <span class="assignee-avatar">{{ task.assignee.first_name|slice:":1"|upper }}{{ task.assignee.last_name|slice:":1"|upper }}</span>
                                 {{ task.assignee.get_full_name|default:task.assignee.username }}
@@ -73,17 +74,17 @@
                                 <span class="assignee-avatar assignee-avatar-none">?</span>
                                 <span class="muted">Unassigned</span>
                             {% endif %}
-                        </div>
-                        <span class="badge badge-{{ task.deadline_status }}">
+                            </div>
+                            <span class="badge badge-{{ task.deadline_status }}">
                             {% if task.deadline_status == 'on-track' %}On track
                             {% elif task.deadline_status == 'at-risk' %}At risk
                             {% elif task.deadline_status == 'overdue' %}Overdue
                             {% else %}Completed{% endif %}
-                        </span>
-                    </div>
-
+                            </span>
+                        </div>
+                    </a>
                     <!-- Same "Move to" dropdown idea as the touch-friendly
-                         fallback we built for the JS version — here it's
+                         fallback i built for the JS version — here it's
                          not a fallback, it's the ONLY way to move a task,
                          since there's no drag-and-drop without JS driving it. -->
                     <form method="post" action="{% url 'task-move' task.id %}">
@@ -185,4 +186,51 @@
         </form>
     </div>
 </div>
+
+<!--------------------- edit task modal ---------------------------->
+{% if edit_task %}
+<div class="task-box" id="editTaskModal">
+    <div class="task-column">
+        <div class="header-task">
+            <h3>Edit Task</h3>
+            <a href="{% url 'portal-dashboard' %}" class="header-close"><i class="ri-close-line"></i></a>
+        </div>
+
+        <form method="post" action="{% url 'task-update' edit_task.id %}" id="editTaskForm" class="task-form">
+            {% csrf_token %}
+            <div class="task-title">
+                <label for="id_title">Task title</label>
+                {{ edit_form.title }}
+            </div>
+            <div class="task-type">
+                <label for="id_process_type">Process type</label>
+                {{ edit_form.process_type }}
+            </div>
+            <div class="task-title">
+                <label for="id_assignee">Assignee</label>
+                {{ edit_form.assignee }}
+            </div>
+            <div class="task-type">
+                <label for="id_status">Status</label>
+                {{ edit_form.status }}
+            </div>
+        </form>
+
+        <div class="board-buttons">
+            <!-- A form nested inside another form is invalid HTML —
+                 this is a SEPARATE, sibling form for delete, not
+                 nested inside the update form above. -->
+            <form method="post" action="{% url 'task-delete' edit_task.id %}"
+                  onsubmit="return confirm('Delete this task?');" style="margin-right:auto;">
+                {% csrf_token %}
+                <button type="submit" class="toolbar-btn hide" style="color:var(--overdue-fg); border-color:var(--overdue-bg);">Delete task</button>
+            </form>
+            <a href="{% url 'portal-dashboard' %}" class="toolbar-btn hide">Cancel</a>
+            <!-- form="editTaskForm" links this button to the form above,
+                 even though it's physically outside it. -->
+            <button type="submit" form="editTaskForm" class="toolbar-btn show">Save changes</button>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

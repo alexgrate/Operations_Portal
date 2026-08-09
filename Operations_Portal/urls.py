@@ -60,4 +60,5 @@ urlpatterns = [
     path('register/', user_views.register, name='register'),
     *password_reset_patterns,
     path('', include('portal.urls')),
+    path('accounts/', include('allauth.urls')),
 ]

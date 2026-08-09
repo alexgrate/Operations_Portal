@@ -9,8 +9,8 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .forms import ColumnForm, ProcessTypeForm, TaskForm
-from .models import Column, ProcessType, Task
+from .forms import ColumnForm, ProcessTypeForm, TaskForm, CommentForm
+from .models import Column, ProcessType, Task, Comment
 
 
 # --- Authentication ---------------------------------------------------------
@@ -74,6 +74,13 @@ def compute_deadline_status(task):
         return 'at-risk'
     return 'on-track'
 
+def admin_required(view_func):
+    def wrapper(request, *args, **kwargs):
+        if not (request.user.is_authenticated and hasattr(request.user, 'profile') and request.user.profile.role == 'admin'):
+            messages.error(request, 'Only Admins can do that.')
+            return redirect('portal-dashboard')
+        return view_func(request, *args, **kwargs)
+    return wrapper
 
 def _clean_id(value):
     """Accept a filter/lookup id from a query string only if it's a number."""
@@ -183,6 +190,7 @@ def task_delete(request, pk):
 
 
 @login_required
+@admin_required
 @require_POST
 def column_create(request):
     form = ColumnForm(request.POST)
@@ -201,6 +209,7 @@ def column_create(request):
 
 
 @login_required
+@admin_required
 @require_POST
 def column_delete(request, pk):
     column = get_object_or_404(Column, pk=pk)
@@ -238,6 +247,7 @@ def process_type_create(request):
 
 
 @login_required
+@admin_required
 @require_POST
 def process_type_delete(request, pk):
     process_type = get_object_or_404(ProcessType, pk=pk)
@@ -310,6 +320,57 @@ def analytics_view(request):
         'at_risk_count': at_risk_count,
         'avg_turnaround_hours': avg_turnaround_hours,
         'by_process': group_and_summarize(lambda t: t.process_type.name),
-        'by_staff': group_and_summarize(staff_name),
+        'by_staff': group_and_summarize(lambda t: t.assignee.get_full_name() if t.assignee else 'Unassigned'),
     }
     return render(request, 'portal/analytics.html', context)
+# 'by_staff': group_and_summarize(staff_name),
+
+
+@login_required
+def comment_create(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+    if request.method == 'POST':
+        form = CommentForm(request.POST)
+        if form.is_valid():
+            comment = form.save(commit=False)
+            comment.task = task
+            comment.author = request.user
+            comment.save()
+    return redirect('task-edit', pk=pk)
+
+
+
+@login_required
+def task_edit(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+    context = _dashboard_context(request, task_form=TaskForm(instance=task))
+    context['edit_task'] = task
+    context['comments'] = task.comments.select_related('author')
+    context['comment_form'] = CommentForm()
+    return render(request, 'portal/dashboard.html', context)
+
+
+@login_required
+def task_update(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+    if request.method == 'POST':
+        form = TaskForm(request.POST, instance=task)
+        if form.is_valid():
+            updated = form.save(commit=False)
+            if updated.status.starts and not updated.started_at:
+                updated.started_at = timezone.now()
+            if updated.status.completes:
+                if updated.process_type.requires_approval and not updated.approved_at:
+                    updated.awaiting_approval = True
+                    updated.completed_at = None
+                else:
+                    updated.completed_at = timezone.now()
+                    updated.awaiting_approval = False
+            else:
+                updated.completed_at = None
+                updated.awaiting_approval = False
+            updated.save()
+            messages.success(request, 'Task updated.')
+        else:
+            messages.error(request, 'Could not update task — check the form.')
+    return redirect('portal-dashboard')

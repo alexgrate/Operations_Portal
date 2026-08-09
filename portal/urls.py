@@ -15,9 +15,10 @@ urlpatterns = [
     path('dashboard/catalog/new/', views.process_type_create, name='process-type-create'),
     path('dashboard/catalog/<int:pk>/delete/', views.process_type_delete, name='process-type-delete'),
     path('dashboard/analytics/', views.analytics_view, name='portal-analytics'),
+    path('dashboard/tasks/<int:pk>/comments/', views.comment_create, name='comment-create'),
 
-    # path('dashboard/tasks/<int:pk>/edit/', views.task_edit, name='task-edit'),
-    # path('dashboard/tasks/<int:pk>/update/', views.task_update, name='task-update'),
+    path('dashboard/tasks/<int:pk>/edit/', views.task_edit, name='task-edit'),
+    path('dashboard/tasks/<int:pk>/update/', views.task_update, name='task-update'),
     # path('dashboard/catalog/<int:pk>/edit/', views.column_edit, name='task-edit'),
     # path('dashboard/catalog/<int:pk>/update/', views.column_update, name='task-update'),
 ]
