@@ -28,7 +28,7 @@ class ProcessTypeForm(forms.ModelForm):
 
     class Meta:
         model = ProcessType
-        fields = ['name', 'target_hours']
+        fields = ['name', 'target_hours', 'requires_approval']
         widgets = {
             'name': forms.TextInput(attrs={'placeholder': 'e.g. Account Opening — Retail'}),
             'target_hours': forms.NumberInput(attrs={'min': '0.5', 'step': '0.5'}),

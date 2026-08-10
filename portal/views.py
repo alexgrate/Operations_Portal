@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
@@ -36,7 +37,10 @@ def login_view(request):
                 messages.success(request, f'Welcome back, {user.get_short_name() or user.get_username()}.')
                 return redirect(_safe_next(request) or reverse('portal-dashboard'))
 
-    return render(request, 'users/login.html', {'email': email})
+    return render(request, 'users/login.html', {
+        'email': email,
+        'google_login_enabled': settings.GOOGLE_LOGIN_ENABLED,
+    })
 
 
 def _safe_next(request):
@@ -55,13 +59,49 @@ def logout_view(request):
     messages.success(request, 'You have been logged out.')
     return redirect('portal-login')
 
+APPROVER_GROUPS = ('Admin', 'Team Lead')
 
-# --- Shared helpers ---------------------------------------------------------
+
+def can_approve(user):
+    return bool(
+        user.is_authenticated
+        and (user.is_staff or user.is_superuser
+             or user.groups.filter(name__in=APPROVER_GROUPS).exists())
+    )
+
+
+def apply_status_transition(task):
+    """Set the timestamps that follow from the task's current column.
+
+    Shared by create, move, update and approve so a task can't end up in a
+    different state depending on which control the user happened to use.
+    """
+    status = task.status
+
+    if status.starts and not task.started_at:
+        task.started_at = timezone.now()
+
+    if status.completes:
+        if task.process_type.requires_approval and not task.approved_at:
+            task.awaiting_approval = True
+            task.completed_at = None
+        else:
+            task.awaiting_approval = False
+            if not task.completed_at:
+                task.completed_at = timezone.now()
+    else:
+        task.awaiting_approval = False
+        task.completed_at = None
+        task.approved_at = None
+        task.approved_by = None
+
 
 def compute_deadline_status(task):
     """Where a task sits against its process type's turnaround target."""
     if task.completed_at:
         return 'done'
+    if task.awaiting_approval:
+        return 'awaiting'
 
     target_seconds = task.process_type.target_hours * 3600
     if target_seconds <= 0:
@@ -108,6 +148,7 @@ def _dashboard_context(request, task_form=None, column_form=None):
 
     return {
         'active_tab': 'board',
+        'can_approve': can_approve(request.user),
         'columns_with_tasks': columns_with_tasks,
         'all_columns': columns,
         'process_types': ProcessType.objects.all(),
@@ -140,10 +181,7 @@ def task_create(request):
     form = TaskForm(request.POST)
     if form.is_valid():
         task = form.save(commit=False)
-        if task.status.starts:
-            task.started_at = timezone.now()
-        if task.status.completes:
-            task.completed_at = timezone.now()
+        apply_status_transition(task)
         task.save()
         messages.success(request, 'Task created.')
         return redirect('portal-dashboard')
@@ -164,19 +202,12 @@ def task_move(request, pk):
         messages.error(request, 'Pick a column to move the task to.')
         return redirect('portal-dashboard')
 
-    new_status = get_object_or_404(Column, pk=status_id)
-    task.status = new_status
-
-    if new_status.starts and not task.started_at:
-        task.started_at = timezone.now()
-
-    if new_status.completes:
-        if not task.completed_at:
-            task.completed_at = timezone.now()
-    else:
-        task.completed_at = None
-
+    task.status = get_object_or_404(Column, pk=status_id)
+    apply_status_transition(task)
     task.save()
+
+    if task.awaiting_approval:
+        messages.info(request, f'“{task.title}” is now waiting for approval.')
     return redirect('portal-dashboard')
 
 
@@ -316,6 +347,7 @@ def analytics_view(request):
         'active_tab': 'analytics',
         'total': len(tasks),
         'completed_count': len(completed),
+        'awaiting_count': sum(1 for t in not_completed if t.awaiting_approval),
         'overdue_count': overdue_count,
         'at_risk_count': at_risk_count,
         'avg_turnaround_hours': avg_turnaround_hours,
@@ -327,23 +359,30 @@ def analytics_view(request):
 
 
 @login_required
+@require_POST
 def comment_create(request, pk):
     task = get_object_or_404(Task, pk=pk)
-    if request.method == 'POST':
-        form = CommentForm(request.POST)
-        if form.is_valid():
-            comment = form.save(commit=False)
-            comment.task = task
-            comment.author = request.user
-            comment.save()
+    form = CommentForm(request.POST)
+
+    if form.is_valid():
+        comment = form.save(commit=False)
+        comment.task = task
+        comment.author = request.user
+        comment.save()
+    else:
+        messages.error(request, 'Your comment was empty, so nothing was posted.')
+
     return redirect('task-edit', pk=pk)
 
 
 
 @login_required
-def task_edit(request, pk):
+def task_edit(request, pk, edit_form=None):
     task = get_object_or_404(Task, pk=pk)
-    context = _dashboard_context(request, task_form=TaskForm(instance=task))
+    context = _dashboard_context(request)
+    # The template's edit modal reads `edit_form`; `task_form` stays bound to
+    # the separate "New Task" modal on the same page.
+    context['edit_form'] = edit_form if edit_form is not None else TaskForm(instance=task)
     context['edit_task'] = task
     context['comments'] = task.comments.select_related('author')
     context['comment_form'] = CommentForm()
@@ -351,26 +390,44 @@ def task_edit(request, pk):
 
 
 @login_required
+@require_POST
 def task_update(request, pk):
     task = get_object_or_404(Task, pk=pk)
-    if request.method == 'POST':
-        form = TaskForm(request.POST, instance=task)
-        if form.is_valid():
-            updated = form.save(commit=False)
-            if updated.status.starts and not updated.started_at:
-                updated.started_at = timezone.now()
-            if updated.status.completes:
-                if updated.process_type.requires_approval and not updated.approved_at:
-                    updated.awaiting_approval = True
-                    updated.completed_at = None
-                else:
-                    updated.completed_at = timezone.now()
-                    updated.awaiting_approval = False
-            else:
-                updated.completed_at = None
-                updated.awaiting_approval = False
-            updated.save()
-            messages.success(request, 'Task updated.')
-        else:
-            messages.error(request, 'Could not update task — check the form.')
+    form = TaskForm(request.POST, instance=task)
+
+    if not form.is_valid():
+        # Re-open the edit modal with the errors instead of dropping the edit.
+        messages.error(request, 'Could not update the task — check the highlighted fields.')
+        return task_edit(request, pk, edit_form=form)
+
+    updated = form.save(commit=False)
+    apply_status_transition(updated)
+    updated.save()
+
+    if updated.awaiting_approval:
+        messages.info(request, f'“{updated.title}” is now waiting for approval.')
+    else:
+        messages.success(request, 'Task updated.')
+    return redirect('portal-dashboard')
+
+
+@login_required
+@require_POST
+def task_approve(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+
+    if not can_approve(request.user):
+        messages.error(request, 'You do not have permission to approve tasks.')
+        return redirect('portal-dashboard')
+
+    if not task.awaiting_approval:
+        messages.info(request, 'That task is not waiting for approval.')
+        return redirect('portal-dashboard')
+
+    task.approved_at = timezone.now()
+    task.approved_by = request.user
+    apply_status_transition(task)
+    task.save()
+
+    messages.success(request, f'Approved “{task.title}”.')
     return redirect('portal-dashboard')

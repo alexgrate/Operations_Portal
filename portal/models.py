@@ -15,6 +15,13 @@ class ProcessType(models.Model):
     # a separate table for it.
     checklist = models.JSONField(default=list, blank=True)
 
+    # When on, a task of this type is not finished the moment it reaches a
+    # "Completes" column - it waits for an Admin or Team Lead to sign it off.
+    requires_approval = models.BooleanField(
+        default=False,
+        help_text='Tasks of this type need a sign-off before they count as completed.',
+    )
+
     def __str__(self):
         return self.name
 
@@ -58,6 +65,15 @@ class Task(models.Model):
 
     # Mirrors your `checklistDone: { "0": true, "1": false }` object.
     checklist_done = models.JSONField(default=dict, blank=True)
+
+    # Approval sign-off. A task whose process type requires approval parks in
+    # `awaiting_approval` when it reaches a completing column, and only gets a
+    # `completed_at` once someone signs it off.
+    awaiting_approval = models.BooleanField(default=False)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_tasks'
+    )
 
     def __str__(self):
         return self.title
