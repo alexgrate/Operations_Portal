@@ -56,12 +56,46 @@ committed template; copy it and fill in real values.
 
 | Variable | Required | What it does |
 | --- | --- | --- |
+| `DJANGO_SECRET_KEY` | **production** | App refuses to boot with `DEBUG=False` and no key |
+| `DJANGO_DEBUG` | no | `True` / `False`, defaults to `True` |
+| `DJANGO_ALLOWED_HOSTS` | **production** | Comma-separated hostnames Django will answer for |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | **HTTPS** | Full origins, e.g. `https://portal.dash-mfb.com` |
+| `DJANGO_TIME_ZONE` | no | Display timezone; set `Africa/Lagos` for local times |
+| `DJANGO_USE_PROXY_SSL_HEADER` | behind a proxy | Without it, the SSL redirect loops forever |
+| `DJANGO_SECURE_HSTS_SECONDS` | no | Start at `3600`, raise once HTTPS is proven |
+| `DJANGO_SECURE_SSL_REDIRECT` / `..._SESSION_COOKIE_SECURE` / `..._CSRF_COOKIE_SECURE` | no | Default to **on** whenever `DEBUG` is off |
+| `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | **production** | Defaults to local SQLite; move to Postgres |
 | `MS_GRAPH_TENANT_ID` | for real email | Azure AD tenant ID |
 | `MS_GRAPH_CLIENT_ID` | for real email | App registration (client) ID |
 | `MS_GRAPH_CLIENT_SECRET` | for real email | App registration client secret |
 | `MS_GRAPH_SENDER` | for real email | Mailbox that sends, e.g. `robot@dash-mfb.com` |
-| `DJANGO_SECRET_KEY` | production | Falls back to an insecure dev key if unset |
-| `DJANGO_DEBUG` | no | `True` / `False`, defaults to `True` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional | Blank hides the "Continue with Google" button |
+
+`.env.example` documents all of these with inline guidance.
+
+### Google sign-in
+
+Optional. Create an OAuth 2.0 Client ID (Web application) in the Google Cloud
+console with the redirect URI
+`https://<your-host>/accounts/google/login/callback/`, then set
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Credentials are read from the
+environment, so no `django.contrib.sites` row and nothing secret in the
+database. Only `@dash-mfb.com` Google accounts are accepted — enforced in
+[`portal/adapters.py`](portal/adapters.py).
+
+**Leave the two variables blank and the button is hidden entirely** — it is
+not shown in a broken state.
+
+### Approvals
+
+A process type can be marked **"Needs approval"** in the catalog. Tasks of
+that type do not complete when they reach a "Completes" column — they park in
+**Awaiting approval** until an approver signs them off, and only then get a
+`completed_at`.
+
+Approvers are Django staff/superusers, plus anyone in an **`Admin`** or
+**`Team Lead`** group (create the groups in `/admin/`). Re-opening an approved
+task clears the sign-off, so it has to be approved again.
 
 ### Email
 
@@ -155,12 +189,27 @@ every auth page.
 
 ## Before deploying
 
-`settings.py` is still development-shaped. At minimum:
+Everything below is driven from `.env` — see the table above.
 
-- Set `DJANGO_DEBUG=False` and a real `DJANGO_SECRET_KEY` in the environment
-- Fill in `ALLOWED_HOSTS`
-- Serve static files properly (`python manage.py collectstatic`)
-- Move off SQLite
-- Add `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`
+1. `DJANGO_DEBUG=False` and a real `DJANGO_SECRET_KEY`
+   (the app refuses to start without one)
+2. `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS`
+3. Postgres via the `DB_*` variables — **SQLite cannot handle concurrent
+   writers** and will lock up under real use
+4. `DJANGO_USE_PROXY_SSL_HEADER=True` if TLS terminates at a load balancer
+5. `python manage.py collectstatic` — `STATIC_ROOT` is set to `staticfiles/`.
+   With `DEBUG=False` Django serves no static files itself, so put nginx or
+   WhiteNoise in front
+6. `python manage.py migrate`
 
-Run `python manage.py check --deploy` for the full list.
+The HTTPS settings (SSL redirect, secure session and CSRF cookies) turn
+themselves **on** as soon as `DEBUG` is off — nothing to remember.
+
+Verify with:
+
+```bash
+python manage.py check --deploy
+```
+
+The only remaining warning should be `security.W021` (HSTS preload), which is
+deliberately opt-in: submitting to the preload list is very hard to reverse.

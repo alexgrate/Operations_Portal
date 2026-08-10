@@ -13,29 +13,48 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Secrets and per-machine configuration live in .env, which is gitignored.
-# See .env.example for the keys this project expects.
+# See .env.example for every key this project reads.
 load_dotenv(BASE_DIR / '.env')
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+def env_bool(name, default=False):
+    return os.environ.get(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-%4uy2xw7yve5r$#@9oniicqrbrtk$-k_ugw#_09n#kxrmp$xew',
-)
+
+def env_list(name, default=''):
+    """Comma-separated env value -> list, ignoring blanks and stray spaces."""
+    return [item.strip() for item in os.environ.get(name, default).split(',') if item.strip()]
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes', 'on')
+DEBUG = env_bool('DJANGO_DEBUG', True)
 
-ALLOWED_HOSTS = []
+INSECURE_DEV_KEY = 'django-insecure-%4uy2xw7yve5r$#@9oniicqrbrtk$-k_ugw#_09n#kxrmp$xew'
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or INSECURE_DEV_KEY
+
+if not DEBUG and SECRET_KEY == INSECURE_DEV_KEY:
+    raise ImproperlyConfigured(
+        'DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is off. Generate one with:\n'
+        '  python -c "from django.core.management.utils import get_random_secret_key; '
+        'print(get_random_secret_key())"'
+    )
+
+# Hostnames this site answers to, e.g. "portal.dash-mfb.com,10.0.1.14".
+# Django refuses any request whose Host header isn't listed.
+ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1' if DEBUG else '')
+
+# Required once the portal is served over HTTPS, or POSTs get rejected.
+# Full origins including the scheme: "https://portal.dash-mfb.com".
+CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 
 # Application definition
@@ -93,12 +112,30 @@ WSGI_APPLICATION = 'Operations_Portal.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Defaults to the local SQLite file. For production set DB_ENGINE to
+# 'django.db.backends.postgresql' and fill in the rest - SQLite does not cope
+# with concurrent writers.
+DB_ENGINE = os.environ.get('DB_ENGINE', 'django.db.backends.sqlite3')
+
+if DB_ENGINE.endswith('sqlite3'):
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': os.environ.get('DB_NAME') or BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': os.environ.get('DB_NAME', ''),
+            'USER': os.environ.get('DB_USER', ''),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', ''),
+            'PORT': os.environ.get('DB_PORT', ''),
+            'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
+        }
+    }
 
 
 # Password validation
@@ -107,7 +144,45 @@ DATABASES = {
 AUTHENTICATION_BACKENDS = [
     'users.backends.EmailOrUsernameBackend',
     'django.contrib.auth.backends.ModelBackend',
+    # Required for "Continue with Google" - allauth signs the user in through
+    # its own backend, not the two above.
+    'allauth.account.auth_backends.AuthenticationBackend',
 ]
+
+
+# Google sign-in (django-allauth)
+# Credentials come from .env. Configuring them here rather than through the
+# admin means no django.contrib.sites row is needed and nothing secret is
+# stored in the database.
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+
+# The login page hides the Google button when this is False.
+GOOGLE_LOGIN_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id': GOOGLE_CLIENT_ID,
+            'secret': GOOGLE_CLIENT_SECRET,
+            'key': '',
+        },
+        'SCOPE': ['profile', 'email'],
+        'AUTH_PARAMS': {'access_type': 'online'},
+    }
+}
+
+# Only @dash-mfb.com Google accounts are accepted - enforced in
+# portal/adapters.py, which allauth calls before completing a social login.
+SOCIALACCOUNT_ADAPTER = 'portal.adapters.MySocialAccountAdapter'
+
+# Trust the email Google gives us, so nobody is asked to verify it again,
+# and never let allauth put up its own signup form for a social login.
+SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
+SOCIALACCOUNT_EMAIL_REQUIRED = True
+SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_LOGIN_ON_GET = True
+ACCOUNT_EMAIL_VERIFICATION = 'none'
 
 LOGIN_URL = 'portal-login'
 LOGIN_REDIRECT_URL = 'portal-dashboard'
@@ -137,6 +212,35 @@ PASSWORD_RESET_TIMEOUT = 60 * 60 * 3
 SESSION_COOKIE_AGE = 15 * 60
 SESSION_SAVE_EVERY_REQUEST = True
 
+
+# HTTPS and cookie security
+# https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+#
+# These default to "on whenever DEBUG is off", so a production deploy is
+# secure without setting anything. The env vars exist to override that - for
+# example turning the SSL redirect off while TLS is still being set up.
+
+SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', not DEBUG)
+SESSION_COOKIE_SECURE = env_bool('DJANGO_SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('DJANGO_CSRF_COOKIE_SECURE', not DEBUG)
+
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# Behind a load balancer or reverse proxy, this header is the only way Django
+# knows the original request was HTTPS. Without it SECURE_SSL_REDIRECT loops
+# forever. Only switch on when the proxy is trusted to set the header itself.
+if env_bool('DJANGO_USE_PROXY_SSL_HEADER', False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# HSTS makes browsers refuse plain HTTP for this domain, and they remember it
+# for the full duration. Start small (3600), raise to 31536000 once HTTPS is
+# confirmed on every subdomain - it cannot be taken back quickly.
+SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -158,7 +262,9 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# Timestamps are stored in UTC (USE_TZ) and rendered in this zone. Set
+# DJANGO_TIME_ZONE=Africa/Lagos so turnaround times read as local time.
+TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'UTC')
 
 USE_I18N = True
 
@@ -170,8 +276,6 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-SOCIALACCOUNT_ADAPTER = 'portal.adapters.MySocialAccountAdapter'
-
-SITE_ID = 1
-
-SOCIALACCOUNT_ADAPTER = 'portal.adapters.MySocialAccountAdapter'
+# Where `manage.py collectstatic` writes to. Required before deploying -
+# with DEBUG off, Django does not serve static files itself.
+STATIC_ROOT = BASE_DIR / 'staticfiles'

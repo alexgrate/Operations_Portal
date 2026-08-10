@@ -1,6 +1,20 @@
+# Pinned to the versions this project currently runs on.
+# Install with:  pip install -r requirements.txt
 
 Django==6.1
 
+# Reads .env so secrets stay out of settings.py
 python-dotenv==1.2.2
 
+# CA bundle for the Microsoft Graph calls. Python builds from python.org on
+# macOS ship without root certificates, which makes TLS verification fail.
 certifi==2026.7.22
+
+# "Continue with Google" sign-in. The [socialaccount] extra pulls in
+# requests, requests-oauthlib and PyJWT.
+django-allauth[socialaccount]==65.19.0
+
+# Not used yet - nothing imports DRF and neither package is in INSTALLED_APPS.
+# Uncomment when the API layer is built.
+# djangorestframework==3.17.2
+# django-cors-headers==4.9.0

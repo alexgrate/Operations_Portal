@@ -18,7 +18,12 @@
         {% for pt in process_types %}
         <div class="catalog-card">
             <h4>{{ pt.name }}</h4>
-            <span class="catalog-target">Target: {{ pt.target_hours|floatformat:"-1" }}h</span>
+            <div class="catalog-tags">
+                <span class="catalog-target">Target: {{ pt.target_hours|floatformat:"-1" }}h</span>
+                {% if pt.requires_approval %}
+                    <span class="catalog-flag">Needs approval</span>
+                {% endif %}
+            </div>
             <div class="catalog-checklist">
                 {% if pt.checklist %}
                     Checklist ({{ pt.checklist|length }}):
@@ -71,6 +76,11 @@
                 {{ form.checklist_text }}
                 {% for error in form.checklist_text.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
+            <label class="checkbox-row">
+                {{ form.requires_approval }}
+                <span>Tasks of this type need an <strong>Admin or Team Lead sign-off</strong>
+                    before they count as completed</span>
+            </label>
             <div class="board-buttons">
                 <div class="spacer"></div>
                 <button type="button" class="toolbar-btn hide" onclick="document.getElementById('processModal').classList.add('hidden')">Cancel</button>

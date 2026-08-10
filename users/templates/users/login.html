@@ -90,15 +90,19 @@
             </button>
         </form>
 
-        <div class="divider">
-            <span>OR</span>
-        </div>
+        {% if google_login_enabled %}
+            <div class="divider">
+                <span>OR</span>
+            </div>
 
-        <!-- Google Login -->
-        <a href="{% provider_login_url 'google' %}" class="google-btn">
-            <i class="ri-google-fill"></i>
-            <p>Continue with Google</p>
-        </a>
+            <!-- Google Login. Hidden entirely unless GOOGLE_CLIENT_ID and
+                 GOOGLE_CLIENT_SECRET are set, since provider_login_url
+                 raises when the provider has no credentials. -->
+            <a href="{% provider_login_url 'google' %}" class="google google-btn">
+                <i class="ri-google-fill"></i>
+                <p>Continue with Google</p>
+            </a>
+        {% endif %}
 
         <p class="auth-switch">
             Don't have an account?

@@ -372,7 +372,8 @@ input:disabled{
     font-size: 12px;
 }
 
-.google{
+.google,
+.google-btn{
     width: 100%;
     height: 46px;
     border-radius: 10px;
@@ -389,12 +390,20 @@ input:disabled{
     transition: background var(--speed) ease, border-color var(--speed) ease;
 }
 
-.google:hover{
+.google:hover,
+.google-btn:hover{
     background: #faf8fb;
     border-color: var(--muted);
 }
 
-.google p{ font-size: 14px; }
+/* It's an <a>, so it needs the link styling neutralised */
+.google-btn{
+    text-decoration: none;
+    color: var(--ink-soft);
+}
+
+.google p,
+.google-btn p{ font-size: 14px; }
 
 .auth-switch{
     text-align: center;
