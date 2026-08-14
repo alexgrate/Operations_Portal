@@ -20,6 +20,9 @@ urlpatterns = [
     path('dashboard/tasks/<int:pk>/edit/', views.task_edit, name='task-edit'),
     path('dashboard/tasks/<int:pk>/update/', views.task_update, name='task-update'),
     path('dashboard/tasks/<int:pk>/approve/', views.task_approve, name='task-approve'),
+
+    path('dashboard/catalog/<int:pk>/edit/', views.process_type_edit, name='process-type-edit'),
+    path('dashboard/catalog/<int:pk>/update/', views.process_type_update, name='process-type-update'),
     # path('dashboard/catalog/<int:pk>/edit/', views.column_edit, name='task-edit'),
     # path('dashboard/catalog/<int:pk>/update/', views.column_update, name='task-update'),
 ]

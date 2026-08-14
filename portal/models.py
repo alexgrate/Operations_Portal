@@ -62,6 +62,11 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    deadline = models.DateTimeField(null=True, blank=True)
+
+    escalation_sent = models.BooleanField(default=False)
+    escalated_at = models.DateTimeField(null=True, blank=True)
 
     # Mirrors your `checklistDone: { "0": true, "1": false }` object.
     checklist_done = models.JSONField(default=dict, blank=True)
@@ -91,3 +96,33 @@ class Comment(models.Model):
 
     def __str__(self):
         return f'{self.author} on {self.task}'
+
+
+
+class Escalation(models.Model):
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name='escalations',
+    )
+
+    team_lead = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='escalations',
+    )
+
+    message = models.CharField(max_length=500)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.task.title} → {self.team_lead}'

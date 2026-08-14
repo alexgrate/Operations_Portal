@@ -1069,7 +1069,48 @@ main{
     border-radius: 999px;
 }
 
+/* -------------- Countdown ------------------ */
 
+.deadline-badge {
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.badge-on-track {
+    background: #e4f7eb;
+    color: #087a3d;
+}
+
+.badge-at-risk {
+    background: #fff1d6;
+    color: #a85d00;
+}
+
+.badge-overdue {
+    background: #ffe3e3;
+    color: #d72c2c;
+}
+
+.badge-completed {
+    background: #e8ebff;
+    color: #3949ab;
+}
+
+.badge-awaiting {
+    background: #fff1d6;
+    color: #a85d00;
+}
+
+
+/* -------------------- Dashboard hours --------------------- */
+
+
+.task-hours-1{
+    display: flex;
+    gap: 10px;
+}
+
+/* -------------- Countsdown end -------------- */
 /* --------------------------------------------------------------------------
    Responsive
    -------------------------------------------------------------------------- */

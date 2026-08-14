@@ -57,7 +57,7 @@ password_reset_patterns = [
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('register/', user_views.register, name='register'),
+    # path('register/', user_views.register, name='register'),
     *password_reset_patterns,
     path('', include('portal.urls')),
     path('accounts/', include('allauth.urls')),

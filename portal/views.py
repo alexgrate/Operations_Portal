@@ -10,8 +10,10 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .forms import ColumnForm, ProcessTypeForm, TaskForm, CommentForm
-from .models import Column, ProcessType, Task, Comment
+from .forms import ColumnForm, ProcessTypeForm, TaskForm, CommentForm, _apply_target_and_checklist
+from .models import Column, ProcessType, Task, Comment, Escalation
+from datetime import timedelta
+from users.models import Profile
 
 
 # --- Authentication ---------------------------------------------------------
@@ -62,57 +64,178 @@ def logout_view(request):
 APPROVER_GROUPS = ('Admin', 'Team Lead')
 
 
+# def can_approve(user):
+#     return bool(
+#         user.is_authenticated
+#         and (user.is_staff or user.is_superuser
+#              or user.groups.filter(name__in=APPROVER_GROUPS).exists())
+#     )
+
+
 def can_approve(user):
+    if not user.is_authenticated:
+        return False
+
+    if user.is_superuser:
+        return True
+
+    profile = getattr(user, 'profile', None)
+
     return bool(
-        user.is_authenticated
-        and (user.is_staff or user.is_superuser
-             or user.groups.filter(name__in=APPROVER_GROUPS).exists())
+        profile
+        and profile.role in (
+            Profile.ROLE_ADMIN,
+            Profile.ROLE_TEAM_LEAD,
+        )
     )
+
+# def apply_status_transition(task):
+#     """Set the timestamps that follow from the task's current column.
+
+#     Shared by create, move, update and approve so a task can't end up in a
+#     different state depending on which control the user happened to use.
+#     """
+#     status = task.status
+
+#     if status.starts and not task.started_at:
+#         task.started_at = timezone.now()
+
+#     if status.completes:
+#         if task.process_type.requires_approval and not task.approved_at:
+#             task.awaiting_approval = True
+#             task.completed_at = None
+#             task.completion_status = None
+#         else:
+#             task.awaiting_approval = False
+
+#             if not task.completed_at:
+#                 task.completed_at = timezone.now()
+
+#             task.completion_status = get_completion_status(task)
+#     else:
+#         task.awaiting_approval = False
+#         task.completed_at = None
+#         task.approved_at = None
+#         task.approved_by = None
+#         task.completion_status = None
+
 
 
 def apply_status_transition(task):
-    """Set the timestamps that follow from the task's current column.
+    """Set the timestamps that follow from the task's current column."""
 
-    Shared by create, move, update and approve so a task can't end up in a
-    different state depending on which control the user happened to use.
-    """
     status = task.status
 
     if status.starts and not task.started_at:
         task.started_at = timezone.now()
 
     if status.completes:
+        # Record when the staff member actually completed the task.
+        if not task.completed_at:
+            task.completed_at = timezone.now()
+
         if task.process_type.requires_approval and not task.approved_at:
             task.awaiting_approval = True
-            task.completed_at = None
         else:
             task.awaiting_approval = False
-            if not task.completed_at:
-                task.completed_at = timezone.now()
+
+        task.completion_status = get_completion_status(task)
+
     else:
         task.awaiting_approval = False
         task.completed_at = None
         task.approved_at = None
         task.approved_by = None
+        task.completion_status = None
 
 
 def compute_deadline_status(task):
-    """Where a task sits against its process type's turnaround target."""
+    """Where a task sits against its deadline."""
+
     if task.completed_at:
         return 'done'
+
     if task.awaiting_approval:
         return 'awaiting'
 
-    target_seconds = task.process_type.target_hours * 3600
-    if target_seconds <= 0:
+    if not task.deadline:
+        return 'on-track'
+
+    now = timezone.now()
+
+    if now >= task.deadline:
         return 'overdue'
 
-    pct = (timezone.now() - task.created_at).total_seconds() / target_seconds
-    if pct >= 1:
+    total_seconds = (
+        task.deadline - task.created_at
+    ).total_seconds()
+
+    if total_seconds <= 0:
         return 'overdue'
+
+    elapsed_seconds = (
+        now - task.created_at
+    ).total_seconds()
+
+    pct = elapsed_seconds / total_seconds
+
     if pct >= 0.7:
         return 'at-risk'
+
     return 'on-track'
+
+
+def create_escalation_if_needed(task):
+    """
+    Create an escalation when a task becomes at-risk.
+
+    For now, all active Team Leads receive the escalation.
+    Branch-based routing can be added later.
+    """
+
+    if task.completed_at:
+        return
+
+    if not task.deadline:
+        return
+
+    if compute_deadline_status(task) != 'at-risk':
+        return
+
+    # Prevent duplicate escalations for the same task.
+    if Escalation.objects.filter(task=task).exists():
+        return
+
+    team_leads = User.objects.filter(
+        profile__role=Profile.ROLE_TEAM_LEAD,
+        is_active=True,
+    )
+
+    for team_lead in team_leads:
+        Escalation.objects.create(
+            task=task,
+            team_lead=team_lead,
+            message=(
+                f'Task "{task.title}" is at risk of missing '
+                f'its deadline.'
+            ),
+        )
+
+
+
+def get_completion_status(task):
+    """Return whether a completed task finished on time or late."""
+
+    if not task.completed_at:
+        return None
+
+    if not task.deadline:
+        return 'on-time'
+
+    if task.completed_at <= task.deadline:
+        return 'on-time'
+
+    return 'late'
 
 def admin_required(view_func):
     def wrapper(request, *args, **kwargs):
@@ -122,6 +245,32 @@ def admin_required(view_func):
         return view_func(request, *args, **kwargs)
     return wrapper
 
+
+def management_required(view_func):
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect('portal-login')
+
+        if request.user.is_superuser:
+            return view_func(request, *args, **kwargs)
+
+        profile = getattr(request.user, 'profile', None)
+
+        if profile and profile.role in (
+            Profile.ROLE_ADMIN,
+            Profile.ROLE_TEAM_LEAD
+        ):
+            return view_func(request, *args, **kwargs)
+
+        messages.error(
+            request,
+            'Only Admins and Team Leads can access that'
+        )
+        return redirect('portal-dashboard')
+
+    return wrapper
+
+
 def _clean_id(value):
     """Accept a filter/lookup id from a query string only if it's a number."""
     return value if (value or '').isdigit() else ''
@@ -130,6 +279,32 @@ def _clean_id(value):
 def _dashboard_context(request, task_form=None, column_form=None):
     columns = list(Column.objects.all())
     tasks = Task.objects.select_related('process_type', 'status', 'assignee')
+
+    # This is for the admin and team lead 
+    # Staffs can only see their task 
+    profile = getattr(request.user, 'profile', None)
+
+    is_management = (
+        request.user.is_superuser
+        or (
+            profile
+            and profile.role in (
+                Profile.ROLE_ADMIN,
+                Profile.ROLE_TEAM_LEAD,
+            )
+        )
+    )
+
+    if not is_management:
+        tasks = tasks.filter(assignee=request.user)
+
+
+    if is_management:
+        process_types = ProcessType.objects.all()
+    else:
+        process_types = ProcessType.objects.filter(
+            tasks__assignee=request.user
+        ).distinct()
 
     process_filter = _clean_id(request.GET.get('process'))
     assignee_filter = _clean_id(request.GET.get('assignee'))
@@ -144,6 +319,7 @@ def _dashboard_context(request, task_form=None, column_form=None):
         column_tasks = [t for t in tasks if t.status_id == column.id]
         for task in column_tasks:
             task.deadline_status = compute_deadline_status(task)
+            create_escalation_if_needed(task)
         columns_with_tasks.append({'column': column, 'tasks': column_tasks})
 
     return {
@@ -151,8 +327,9 @@ def _dashboard_context(request, task_form=None, column_form=None):
         'can_approve': can_approve(request.user),
         'columns_with_tasks': columns_with_tasks,
         'all_columns': columns,
-        'process_types': ProcessType.objects.all(),
-        'staff': User.objects.all(),
+        'process_types': process_types,
+        # 'staff': User.objects.all(),
+        'staff': User.objects.filter(is_active=True),
         'task_form': task_form if task_form is not None else TaskForm(),
         'column_form': column_form if column_form is not None else ColumnForm(),
         'selected_process': process_filter,
@@ -160,12 +337,7 @@ def _dashboard_context(request, task_form=None, column_form=None):
     }
 
 
-def _catalog_context(form=None):
-    return {
-        'active_tab': 'catalog',
-        'process_types': ProcessType.objects.all(),
-        'form': form if form is not None else ProcessTypeForm(),
-    }
+
 
 
 # --- Task board -------------------------------------------------------------
@@ -181,6 +353,9 @@ def task_create(request):
     form = TaskForm(request.POST)
     if form.is_valid():
         task = form.save(commit=False)
+        task.deadline = timezone.now() + timedelta(
+            hours=task.process_type.target_hours
+        )
         apply_status_transition(task)
         task.save()
         messages.success(request, 'Task created.')
@@ -212,6 +387,7 @@ def task_move(request, pk):
 
 
 @login_required
+@admin_required
 @require_POST
 def task_delete(request, pk):
     task = get_object_or_404(Task, pk=pk)
@@ -253,13 +429,41 @@ def column_delete(request, pk):
 
 
 # --- Process catalog --------------------------------------------------------
+def _catalog_context(request, form=None):
+    profile = getattr(request.user, 'profile', None)
+
+    is_management = (
+        request.user.is_superuser
+        or (
+            profile
+            and profile.role in (
+                Profile.ROLE_ADMIN,
+                Profile.ROLE_TEAM_LEAD,
+            )
+        )
+    )
+
+    if is_management:
+        process_types = ProcessType.objects.all()
+    else:
+        process_types = ProcessType.objects.filter(
+            tasks__assignee=request.user
+        ).distinct()
+
+    return {
+        'active_tab': 'catalog',
+        'process_types': process_types,
+        'form': form if form is not None else ProcessTypeForm(),
+    }
+#  'process_types': ProcessType.objects.all(),
 
 @login_required
 def catalog_view(request):
-    return render(request, 'portal/catalog.html', _catalog_context())
+    return render(request, 'portal/catalog.html', _catalog_context(request))
 
 
 @login_required
+@management_required
 @require_POST
 def process_type_create(request):
     form = ProcessTypeForm(request.POST)
@@ -267,6 +471,7 @@ def process_type_create(request):
         process_type = form.save(commit=False)
         checklist_text = form.cleaned_data.get('checklist_text', '')
         process_type.checklist = [line.strip() for line in checklist_text.splitlines() if line.strip()]
+        _apply_target_and_checklist(form, process_type)
         process_type.save()
         messages.success(request, 'Process type saved.')
         return redirect('portal-catalog')
@@ -291,7 +496,7 @@ def process_type_delete(request, pk):
 
 
 # --- Analytics --------------------------------------------------------------
-
+@admin_required
 @login_required
 def analytics_view(request):
     tasks = list(Task.objects.select_related('process_type', 'assignee').all())
@@ -424,10 +629,50 @@ def task_approve(request, pk):
         messages.info(request, 'That task is not waiting for approval.')
         return redirect('portal-dashboard')
 
+    # This records who approved it and when
     task.approved_at = timezone.now()
     task.approved_by = request.user
-    apply_status_transition(task)
+
+    # This actual completion time is the approval time 
+    # task.completed_at = task.approved_at
+    task.awaiting_approval = False
+
+    # Determine whether the task was completed before its deadline
+    task.completion_status = get_completion_status(task)
+
+    # apply_status_transition(task)
     task.save()
 
     messages.success(request, f'Approved “{task.title}”.')
     return redirect('portal-dashboard')
+
+
+# ------------------- Process type edit and update ------------------
+
+@login_required
+@admin_required
+def process_type_edit(request, pk):
+    process_type = get_object_or_404(ProcessType, pk=pk)
+    context = {
+        'process_types': ProcessType.objects.all(),
+        'form': ProcessTypeForm(instance=process_type),
+        'active_tab': 'catalog',
+        'edit_process_type': process_type,
+    }
+    return render(request, 'portal/catalog.html', context)
+
+
+@login_required
+@admin_required
+def process_type_update(request, pk):
+    process_type = get_object_or_404(ProcessType, pk=pk)
+    if request.method == 'POST':
+        form = ProcessTypeForm(request.POST, instance=process_type)
+        if form.is_valid():
+            form.save(commit=False)
+            _apply_target_and_checklist(form, process_type)
+            process_type.save()
+            messages.success(request, 'Process type updated.')
+        else:
+            messages.error(request, 'Could not update — check the form.')
+    return redirect('portal-catalog')

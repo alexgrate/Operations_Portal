@@ -264,7 +264,9 @@ LANGUAGE_CODE = 'en-us'
 
 # Timestamps are stored in UTC (USE_TZ) and rendered in this zone. Set
 # DJANGO_TIME_ZONE=Africa/Lagos so turnaround times read as local time.
-TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'UTC')
+# TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'UTC')
+
+TIME_ZONE = 'Africa/Lagos'
 
 USE_I18N = True
 

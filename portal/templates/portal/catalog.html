@@ -9,9 +9,11 @@
             <h2>Process Catalog</h2>
             <p class="muted">Every operational process type your team handles, with its default turnaround target and checklist.</p>
         </div>
+        {% if user.is_superuser or user.profile.role == 'admin' or user.profile.role == 'team_lead' %}
         <button type="button" class="toolbar-btn show" onclick="document.getElementById('processModal').classList.remove('hidden')">
             <i class="ri-add-fill"></i> New Process Type
         </button>
+        {% endif %}
     </div>
 
     <div class="catalog-grid">
@@ -66,10 +68,19 @@
                 {{ form.name }}
                 {% for error in form.name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
             </div>
-            <div class="task-title">
+            <!-- <div class="task-title">
                 <label for="{{ form.target_hours.id_for_label }}">Default turnaround target (hours)</label>
                 {{ form.target_hours }}
                 {% for error in form.target_hours.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+            </div> -->
+            <div class="task-title">
+                <label>Default turnaround target</label>
+                <div class="task-hours">
+                    <div class="task-hours-1">
+                        {{ form.target_value }}
+                        {{ form.target_unit }}
+                    </div>
+                </div>
             </div>
             <div class="checklist">
                 <label for="{{ form.checklist_text.id_for_label }}">Standard checklist (optional)</label>
