@@ -57,7 +57,6 @@ class GraphEmailError(Exception):
 
 
 class MicrosoftGraphEmailBackend(BaseEmailBackend):
-    # Tokens are valid tenant-wide, so cache one across instances.
     _token = None
     _token_expires_at = 0.0
     _token_lock = threading.Lock()
