@@ -1,8 +1,7 @@
 {% extends 'users/base2.html' %}
 {% load static %}
-{% load socialaccount %}
 
-{% block title %}Log in — Dash MFB Operations Portal{% endblock title %}
+{% block title %}Log in - Dash MFB Operations Portal{% endblock title %}
 
 {% block content %}
 
@@ -90,20 +89,6 @@
             </button>
         </form>
 
-        {% if google_login_enabled %}
-            <div class="divider">
-                <span>OR</span>
-            </div>
-
-            <!-- Google Login. Hidden entirely unless GOOGLE_CLIENT_ID and
-                 GOOGLE_CLIENT_SECRET are set, since provider_login_url
-                 raises when the provider has no credentials. -->
-            <a href="{% provider_login_url 'google' %}" class="google google-btn">
-                <i class="ri-google-fill"></i>
-                <p>Continue with Google</p>
-            </a>
-        {% endif %}
-
         <p class="auth-switch">
             Access is provided by your administrator.
         </p>
@@ -112,9 +97,3 @@
 </div>
 
 {% endblock content %}
-
-
-<!-- <p class="auth-switch">
-            Don't have an account?
-            <a href="{% url 'register' %}">Sign up</a>
-    </p> -->

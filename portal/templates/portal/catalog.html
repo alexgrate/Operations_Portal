@@ -1,104 +1,129 @@
 {% extends 'portal/base.html' %}
-{% load static %}
-{% block title %}Process Catalog — Dash MFB{% endblock %}
+
+{% block title %}Process catalog - Dash MFB{% endblock %}
+{% block heading %}Process catalog{% endblock %}
+
+{% block actions %}
+    {% if can_manage %}
+    <button class="btn btn-primary" type="button"
+            onclick="document.getElementById('newProcess').classList.remove('is-hidden')">
+        <i class="ri-add-line"></i> New process type
+    </button>
+    {% endif %}
+{% endblock %}
 
 {% block content %}
-<section class="tab-panel active">
-    <div class="catalog-bar">
-        <div class="catalog-left">
-            <h2>Process Catalog</h2>
-            <p class="muted">Every operational process type your team handles, with its default turnaround target and checklist.</p>
-        </div>
-        {% if user.is_superuser or user.profile.role == 'admin' or user.profile.role == 'team_lead' %}
-        <button type="button" class="toolbar-btn show" onclick="document.getElementById('processModal').classList.remove('hidden')">
-            <i class="ri-add-fill"></i> New Process Type
-        </button>
-        {% endif %}
-    </div>
 
-    <div class="catalog-grid">
-        {% for pt in process_types %}
-        <div class="catalog-card">
-            <h4>{{ pt.name }}</h4>
-            <div class="catalog-tags">
-                <span class="catalog-target">Target: {{ pt.target_hours|floatformat:"-1" }}h</span>
-                {% if pt.requires_approval %}
-                    <span class="catalog-flag">Needs approval</span>
+<p class="page-intro">
+    Every kind of work the department handles, with its turnaround target,
+    standard checklist and how much sign-off it needs.
+</p>
+
+<div class="cards">
+    {% for pt in process_types %}
+        <div class="card card--tile">
+            <h3 class="tile-title">{{ pt.name }}</h3>
+            <div class="tags">
+                <span class="tag">{{ pt.target_hours|floatformat:"-1" }}h target</span>
+                {% if pt.requires_authorisation %}
+                    <span class="tag tag--warn">Permission first</span>
                 {% endif %}
-            </div>
-            <div class="catalog-checklist">
-                {% if pt.checklist %}
-                    Checklist ({{ pt.checklist|length }}):
-                    <ul>
-                        {% for item in pt.checklist|slice:":3" %}<li>{{ item }}</li>{% endfor %}
-                        {% if pt.checklist|length > 3 %}<li>+{{ pt.checklist|length|add:"-3" }} more</li>{% endif %}
-                    </ul>
+                {% if pt.approval_level != 'none' %}
+                    <span class="tag tag--warn">{{ pt.get_approval_level_display }}</span>
                 {% else %}
-                    No standard checklist
+                    <span class="tag tag--quiet">No sign-off</span>
                 {% endif %}
             </div>
-            <form method="post" action="{% url 'process-type-delete' pt.id %}" class="catalog-card-actions"
-                  onsubmit="return confirm('Delete this process type?');">
-                {% csrf_token %}
-                <button type="submit" class="toolbar-btn btn-danger">Delete</button>
-            </form>
-        </div>
-        {% empty %}
-        <p class="data-empty">No process types yet. Add one to get started.</p>
-        {% endfor %}
-    </div>
-</section>
 
-<!-- NEW PROCESS TYPE MODAL -->
-<div class="task-box {% if not open_process_modal %}hidden{% endif %}" id="processModal">
-    <div class="task-column">
-        <div class="header-task">
-            <h3>New Process Type</h3>
-            <button class="header-close" type="button" onclick="document.getElementById('processModal').classList.add('hidden')">
+            {% if pt.checklist %}
+                <ul class="tile-list">
+                    {% for item in pt.checklist %}<li>{{ item }}</li>{% endfor %}
+                </ul>
+            {% else %}
+                <p class="muted">No standard checklist.</p>
+            {% endif %}
+
+            {% if can_manage %}
+                <div class="tile-foot row-actions">
+                    <a class="btn" href="{% url 'process-type-edit' pt.id %}">Edit</a>
+                    {% if is_head %}
+                        <form method="post" action="{% url 'process-type-delete' pt.id %}"
+                            data-confirm-title="Delete {{ pt.name }}?"
+                            data-confirm="This cannot be undone. Tasks already using it keep their own copy of the checklist and target."
+                            data-confirm-action="Delete">
+                            {% csrf_token %}
+                            <button class="btn btn-danger btn-quiet" type="submit">Delete</button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    {% empty %}
+        <div class="empty">
+            <p class="empty-title">No process types yet</p>
+            <p class="empty-sub">Add one so tasks have a turnaround target and a checklist.</p>
+        </div>
+    {% endfor %}
+</div>
+
+{% if can_manage %}
+<div class="modal {% if not form.errors %}is-hidden{% endif %}" id="newProcess">
+    <div class="modal-card">
+        <div class="modal-head">
+            <h2>New process type</h2>
+            <button class="icon-btn" type="button"
+                    onclick="document.getElementById('newProcess').classList.add('is-hidden')">
                 <i class="ri-close-line"></i>
             </button>
         </div>
-        <form method="post" action="{% url 'process-type-create' %}" class="task-form">
+        <form method="post" action="{% url 'process-type-create' %}" class="form">
             {% csrf_token %}
-            {% for error in form.non_field_errors %}
-                <p class="field-error">{{ error }}</p>
-            {% endfor %}
-            <div class="task-title">
-                <label for="{{ form.name.id_for_label }}">Process name</label>
+            {% for error in form.non_field_errors %}<p class="err">{{ error }}</p>{% endfor %}
+
+            <div class="field">
+                <label for="{{ form.name.id_for_label }}">Name</label>
                 {{ form.name }}
-                {% for error in form.name.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+                {% for error in form.name.errors %}<p class="err">{{ error }}</p>{% endfor %}
             </div>
-            <!-- <div class="task-title">
-                <label for="{{ form.target_hours.id_for_label }}">Default turnaround target (hours)</label>
-                {{ form.target_hours }}
-                {% for error in form.target_hours.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-            </div> -->
-            <div class="task-title">
-                <label>Default turnaround target</label>
-                <div class="task-hours">
-                    <div class="task-hours-1">
-                        {{ form.target_value }}
-                        {{ form.target_unit }}
-                    </div>
+            <div class="field-pair">
+                <div class="field">
+                    <label for="{{ form.target_value.id_for_label }}">Turnaround target</label>
+                    {{ form.target_value }}
+                    {% for error in form.target_value.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="field">
+                    <label for="{{ form.target_unit.id_for_label }}">Unit</label>
+                    {{ form.target_unit }}
                 </div>
             </div>
-            <div class="checklist">
-                <label for="{{ form.checklist_text.id_for_label }}">Standard checklist (optional)</label>
-                {{ form.checklist_text }}
-                {% for error in form.checklist_text.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+            <div class="field">
+                <label for="{{ form.approval_level.id_for_label }}">Sign-off required</label>
+                {{ form.approval_level }}
             </div>
-            <label class="checkbox-row">
-                {{ form.requires_approval }}
-                <span>Tasks of this type need an <strong>Admin or Team Lead sign-off</strong>
-                    before they count as completed</span>
-            </label>
-            <div class="board-buttons">
-                <div class="spacer"></div>
-                <button type="button" class="toolbar-btn hide" onclick="document.getElementById('processModal').classList.add('hidden')">Cancel</button>
-                <button type="submit" class="toolbar-btn show">Save process type</button>
+            <div class="field">
+                <label class="tick">
+                    {{ form.requires_authorisation }}
+                    <span>Must be permitted before work starts</span>
+                </label>
+                <p class="hint">
+                    For work that cannot be undone once begun. Staff-raised tasks need the
+                    team lead then the Department Head; lead-raised tasks need the Head.
+                </p>
+            </div>
+            <div class="field">
+                <label for="{{ form.checklist_text.id_for_label }}">Standard checklist</label>
+                {{ form.checklist_text }}
+                <p class="hint">One item per line. The assignee ticks them all before submitting.</p>
+            </div>
+
+            <div class="modal-foot">
+                <button class="btn" type="button"
+                        onclick="document.getElementById('newProcess').classList.add('is-hidden')">Cancel</button>
+                <button class="btn btn-primary" type="submit">Save</button>
             </div>
         </form>
     </div>
 </div>
-{% endblock %}
+{% endif %}
 
+{% endblock %}

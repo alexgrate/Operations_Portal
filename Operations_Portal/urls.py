@@ -17,7 +17,6 @@ Including another URLconf
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path, include
-from users import views as user_views
 
 # Django's built-in password-reset flow, pointed at the portal's own templates.
 # The URL names are Django's defaults on purpose: the views reverse
@@ -57,8 +56,6 @@ password_reset_patterns = [
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    # path('register/', user_views.register, name='register'),
     *password_reset_patterns,
     path('', include('portal.urls')),
-    path('accounts/', include('allauth.urls')),
 ]

@@ -1,0 +1,145 @@
+{% extends 'portal/base.html' %}
+{% load portal_extras %}
+
+{% block title %}{{ queue_label }} - Dash MFB{% endblock %}
+{% block heading %}{{ queue_label }}{% endblock %}
+
+{% block actions %}
+    <button class="btn btn-primary" type="button"
+            onclick="document.getElementById('newTask').classList.remove('is-hidden')">
+        <i class="ri-add-line"></i> New task
+    </button>
+{% endblock %}
+
+{% block content %}
+
+<form method="get" class="filters">
+    <input type="search" name="q" value="{{ search }}" placeholder="Search tasks…" class="search">
+    <select name="process" class="select" onchange="this.form.submit()">
+        <option value="">All process types</option>
+        {% for pt in process_types %}
+            <option value="{{ pt.id }}" {% if selected_process == pt.id|stringformat:"s" %}selected{% endif %}>{{ pt.name }}</option>
+        {% endfor %}
+    </select>
+    <button class="btn" type="submit">Filter</button>
+</form>
+
+<div class="list">
+    {% for task in tasks %}
+        <a class="row {% if task.urgency == 'overdue' %}row--overdue{% endif %}"
+           href="{% url 'task-detail' task.id %}">
+
+            <span class="row-main">
+                <span class="row-title">{{ task.title }}</span>
+                <span class="row-sub">
+                    {{ task.process_type.name }}
+                    {% if task.team %} · {{ task.team.name }}{% endif %}
+                </span>
+            </span>
+
+            <span class="row-who">
+                {% if task.assignee %}
+                    <span class="avatar">{{ task.assignee|initials }}</span>
+                    <span class="row-who-name">{{ task.assignee.get_full_name|default:task.assignee.username }}</span>
+                {% else %}
+                    <span class="avatar avatar--none">?</span>
+                    <span class="row-who-name muted">Unassigned</span>
+                {% endif %}
+            </span>
+
+            <span class="pill pill--{{ task.state_key }}">{{ task.state_label }}</span>
+
+            <span class="row-due" {% if task.deadline %}title="Due {{ task.deadline|date:'j M Y, H:i' }}"{% endif %}>
+                {% if task.approval_stage == 'approved' %}
+                    {% if task.finished_late %}
+                        <span class="due due--late">Late</span>
+                    {% else %}
+                        <span class="due due--ok">On time</span>
+                    {% endif %}
+                {% elif task.urgency == 'overdue' %}
+                    <span class="due due--overdue">Overdue</span>
+                {% elif task.urgency == 'at-risk' %}
+                    <span class="due due--risk">{{ task.due_label }} left</span>
+                {% elif task.due_label %}
+                    <span class="due">{{ task.due_label }} left</span>
+                {% else %}
+                    <span class="due muted">-</span>
+                {% endif %}
+            </span>
+        </a>
+    {% empty %}
+        <div class="empty">
+            <p class="empty-title">Nothing here</p>
+            <p class="empty-sub">
+                {% if queue_key == 'awaiting' %}No tasks are waiting for your sign-off.
+                {% elif queue_key == 'my-work' %}You have no open tasks.
+                {% elif queue_key == 'submitted' %}You have nothing waiting on someone else.
+                {% elif queue_key == 'completed' %}Nothing has been completed yet.
+                {% else %}No tasks to show.{% endif %}
+            </p>
+        </div>
+    {% endfor %}
+</div>
+
+
+<div class="modal {% if not open_new_task %}is-hidden{% endif %}" id="newTask">
+    <div class="modal-card">
+        <div class="modal-head">
+            <h2>New task</h2>
+            <button class="icon-btn" type="button"
+                    onclick="document.getElementById('newTask').classList.add('is-hidden')">
+                <i class="ri-close-line"></i>
+            </button>
+        </div>
+
+        <form method="post" action="{% url 'task-create' %}" class="form">
+            {% csrf_token %}
+            {% for error in task_form.non_field_errors %}<p class="err">{{ error }}</p>{% endfor %}
+
+            <div class="field">
+                <label for="{{ task_form.title.id_for_label }}">Task title</label>
+                {{ task_form.title }}
+                {% for error in task_form.title.errors %}<p class="err">{{ error }}</p>{% endfor %}
+            </div>
+            <div class="field">
+                <label for="{{ task_form.process_type.id_for_label }}">Process type</label>
+                {{ task_form.process_type }}
+                {% for error in task_form.process_type.errors %}<p class="err">{{ error }}</p>{% endfor %}
+            </div>
+            <div class="field-pair">
+                <div class="field">
+                    <label for="{{ task_form.team.id_for_label }}">Team</label>
+                    {{ task_form.team }}
+                    {% for error in task_form.team.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                    <p class="hint">
+                        Decides which lead reviews it. Pick another team to hand
+                        work over to them.
+                    </p>
+                </div>
+                <div class="field">
+                    <label for="{{ task_form.assignee.id_for_label }}">Assignee</label>
+                    {{ task_form.assignee }}
+                    {% for error in task_form.assignee.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                    {% if not is_management %}
+                        <p class="hint">
+                            Leave as Unassigned when sending work to a team you are
+                            not in. Their Team Lead decides who picks it up.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="field">
+                <label for="{{ task_form.notes.id_for_label }}">Notes</label>
+                {{ task_form.notes }}
+            </div>
+
+            <div class="modal-foot">
+                <button class="btn" type="button"
+                        onclick="document.getElementById('newTask').classList.add('is-hidden')">Cancel</button>
+                <button class="btn btn-primary" type="submit">Create task</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends 'users/base2.html' %}
+{% load static %}
+
+{% block title %}Set your password - Dash MFB Operations Portal{% endblock title %}
+
+{% block content %}
+
+<div class="right">
+    <div class="right-page">
+        <div class="head2">
+            <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
+            <span>
+                <p>Dash MFB</p>
+                <p>-</p>
+                <p>OPERATIONS PORTAL</p>
+            </span>
+        </div>
+
+        {% if validlink %}
+            <h1>Welcome to the Operations Portal</h1>
+            <p>Choose a password for your account and you are ready to go.</p>
+
+            {% if form.non_field_errors %}
+                <p class="form-alert form-alert--error" role="alert">
+                    {% for error in form.non_field_errors %}{{ error }} {% endfor %}
+                </p>
+            {% endif %}
+
+            <form method="post" novalidate>
+                {% csrf_token %}
+
+                <div class="input-group">
+                    <label for="{{ form.new_password1.id_for_label }}">New password</label>
+                    <div class="input-icon-wrap">
+                        <i class="ri-lock-2-line input-icon"></i>
+                        <input id="{{ form.new_password1.id_for_label }}"
+                               name="{{ form.new_password1.html_name }}" type="password"
+                               autocomplete="new-password" autofocus required
+                               placeholder="At least 8 characters">
+                        <button type="button" class="input-icon-btn"
+                                data-toggle-password="{{ form.new_password1.id_for_label }}"
+                                aria-label="Show password">
+                            <i class="ri-eye-line"></i>
+                        </button>
+                    </div>
+                    {% for error in form.new_password1.errors %}
+                        <p class="error-text">{{ error }}</p>
+                    {% endfor %}
+                    <p class="field-hint">
+                        At least 8 characters. Can't be entirely numeric, a common password,
+                        or too similar to your name or email.
+                    </p>
+                </div>
+
+                <div class="input-group">
+                    <label for="{{ form.new_password2.id_for_label }}">Confirm new password</label>
+                    <div class="input-icon-wrap">
+                        <i class="ri-lock-2-line input-icon"></i>
+                        <input id="{{ form.new_password2.id_for_label }}"
+                               name="{{ form.new_password2.html_name }}" type="password"
+                               autocomplete="new-password" required
+                               placeholder="Re-enter your new password">
+                        <button type="button" class="input-icon-btn"
+                                data-toggle-password="{{ form.new_password2.id_for_label }}"
+                                aria-label="Show password">
+                            <i class="ri-eye-line"></i>
+                        </button>
+                    </div>
+                    {% for error in form.new_password2.errors %}
+                        <p class="error-text">{{ error }}</p>
+                    {% endfor %}
+                </div>
+
+                <button class="btn" type="submit">Set password and continue</button>
+            </form>
+        {% else %}
+            <h1>That invite has expired</h1>
+            <p>
+                Invite links can only be used once, and they expire after a week.
+                Ask an administrator to send you a new one.
+            </p>
+
+            <p class="form-alert form-alert--error" role="alert">
+                This invite link is no longer valid.
+            </p>
+
+            <a class="btn btn-link" href="{% url 'portal-login' %}">Back to sign in</a>
+        {% endif %}
+
+        <p class="auth-switch">
+            Remembered your password? <a href="{% url 'portal-login' %}">Log in</a>
+        </p>
+    </div>
+</div>
+
+{% endblock content %}

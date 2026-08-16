@@ -1,0 +1,20 @@
+{% autoescape off %}Hello {{ user.get_full_name|default:user.get_username }},
+
+{{ total }} task{{ total|pluralize }} {{ total|pluralize:"is,are" }} waiting on a decision from you{% if overdue %}, {{ overdue }} of {{ total|pluralize:"them,them" }} already past the deadline{% endif %}.
+{% for row in rows %}
+{% if row.is_new %}NEW  {% else %}     {% endif %}{{ row.task.title }}
+     {% if row.needs_permission %}Needs your permission to start{% else %}Needs your sign-off{% endif %}, waiting {{ row.waiting }}
+     {{ row.task.process_type.name }}{% if row.task.team %} · {{ row.task.team.name }}{% endif %}{% if row.task.assignee %} · {{ row.task.assignee.get_full_name|default:row.task.assignee.get_username }}{% endif %}
+     {% if row.task.urgency == 'overdue' %}OVERDUE since {{ row.task.deadline|date:"j M, H:i" }}{% else %}Due {{ row.task.deadline|date:"j M, H:i" }}{% endif %}
+     {{ row.url }}
+{% endfor %}
+Nothing moves until you act on these. Work waiting for permission has already
+started using up its turnaround time.
+
+Permission queue: {{ permission_url }}
+Sign-off queue:   {{ signoff_url }}
+
+--
+Dash MFB Operations Portal
+This is an automated message; please don't reply to it.
+{% endautoescape %}

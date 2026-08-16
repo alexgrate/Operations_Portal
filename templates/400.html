@@ -1,0 +1,11 @@
+{% extends 'error_base.html' %}
+
+{% block title %}Bad request{% endblock %}
+{% block code %}400{% endblock %}
+{% block heading %}That request couldn't be processed{% endblock %}
+
+{% block message %}
+    <p>Something about the request was malformed. This usually means a stale
+       browser tab or a hand-edited address.</p>
+    <p>Reloading the page normally clears it.</p>
+{% endblock %}

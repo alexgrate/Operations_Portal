@@ -1,0 +1,121 @@
+{% comment %}
+Shared layout for the 400/403/404/500 pages.
+
+Deliberately self-contained: the CSS is inline and nothing is pulled from
+{% load static %}. A 500 page has to render when something is already broken,
+and a missing stylesheet or a staticfiles problem must not be able to take it
+down as well. Django also renders 500.html with an empty context, so nothing
+here may depend on `request` or on a context processor.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Something went wrong{% endblock %} - Dash MFB Operations Portal</title>
+    <style>
+        *{ box-sizing: border-box; margin: 0; padding: 0;
+           font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif; }
+
+        body{
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 32px 20px;
+            background: #f7f5f9;
+            color: #221726;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .card{
+            width: 100%;
+            max-width: 520px;
+            background: #fff;
+            border: 1px solid #e7e1ea;
+            border-radius: 16px;
+            box-shadow: 0 2px 8px rgba(34,23,38,.07);
+            overflow: hidden;
+        }
+
+        .banner{
+            background: linear-gradient(160deg, #5c2170 0%, #4f1a60 55%, #3b1049 100%);
+            color: #fff;
+            padding: 22px 28px;
+        }
+
+        .brand{ font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .75; }
+        .code{ font-size: 40px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; margin-top: 6px; }
+
+        .body{ padding: 26px 28px 28px; }
+        h1{ font-size: 20px; letter-spacing: -.01em; margin-bottom: 10px; }
+        p{ font-size: 14px; line-height: 1.6; color: #756b7c; }
+        p + p{ margin-top: 10px; }
+
+        .detail{
+            margin-top: 16px;
+            padding: 10px 12px;
+            background: #f7f5f9;
+            border: 1px solid #e7e1ea;
+            border-radius: 8px;
+            font-size: 12.5px;
+            color: #46394c;
+            word-break: break-all;
+        }
+
+        .actions{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+
+        .btn{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 42px;
+            padding: 0 18px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            border: 1px solid transparent;
+            cursor: pointer;
+        }
+
+        .btn-primary{ background: #4f1a60; color: #fff; }
+        .btn-primary:hover{ background: #370146; }
+        .btn-secondary{ background: #fff; color: #4f1a60; border-color: #d6ccdb; }
+        .btn-secondary:hover{ background: #f4edf6; }
+
+        .btn:focus-visible{ outline: 2px solid #4f1a60; outline-offset: 2px; }
+
+        @media (max-width: 420px){
+            .actions{ flex-direction: column; }
+            .btn{ width: 100%; }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="card">
+        <div class="banner">
+            <div class="brand">Dash MFB - Operations Portal</div>
+            <div class="code">{% block code %}Error{% endblock %}</div>
+        </div>
+
+        <div class="body">
+            <h1>{% block heading %}Something went wrong{% endblock %}</h1>
+
+            {% block message %}
+                <p>An unexpected problem stopped this page from loading.</p>
+            {% endblock %}
+
+            {% block detail %}{% endblock %}
+
+            <div class="actions">
+                {% block actions %}
+                    <a class="btn btn-primary" href="/">Back to the portal</a>
+                {% endblock %}
+            </div>
+        </div>
+    </main>
+</body>
+
+</html>

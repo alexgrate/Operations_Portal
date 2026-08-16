@@ -1,0 +1,71 @@
+{% extends 'portal/base.html' %}
+
+{% block title %}{{ heading }} - Dash MFB{% endblock %}
+{% block heading %}<a class="back" href="{% url 'portal-staff' %}"><i class="ri-arrow-left-line"></i></a> {{ heading }}{% endblock %}
+
+{% block content %}
+
+<form method="post" class="form form-page">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="err err-top">{{ error }}</p>{% endfor %}
+
+    <div class="card">
+        <h3 class="card-title">Who they are</h3>
+
+        <div class="field">
+            <label for="{{ form.full_name.id_for_label }}">Full name</label>
+            {{ form.full_name }}
+            {% for error in form.full_name.errors %}<p class="err">{{ error }}</p>{% endfor %}
+        </div>
+
+        <div class="field">
+            <label for="{{ form.email.id_for_label }}">Corporate email</label>
+            {{ form.email }}
+            {% for error in form.email.errors %}<p class="err">{{ error }}</p>{% endfor %}
+            <p class="hint">This is what they sign in with. Must be a dash-mfb.com address.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">What they can do</h3>
+
+        <div class="field">
+            <label for="{{ form.role.id_for_label }}">Role</label>
+            {{ form.role }}
+            {% for error in form.role.errors %}<p class="err">{{ error }}</p>{% endfor %}
+            <p class="hint">
+                Staff do the work. Team Leads sign off their team's work.
+                The Department Head gives final approval and sees everything.
+            </p>
+        </div>
+
+        <div class="field">
+            <label>Teams</label>
+            {% if form.teams.field.queryset %}
+                <div class="pick">{{ form.teams }}</div>
+            {% else %}
+                <p class="hint">No teams exist yet. <a href="{% url 'team-create' %}">Create one</a> first.</p>
+            {% endif %}
+            {% for error in form.teams.errors %}<p class="err">{{ error }}</p>{% endfor %}
+            <p class="hint">{{ form.teams.help_text }}</p>
+        </div>
+    </div>
+
+    {% if not person %}
+    <p class="banner">
+        <i class="ri-mail-send-line"></i>
+        They get an email straight away with a link to set their own password.
+        You never see or set it. The link lasts a week, and you can resend it
+        any time from the staff list.
+    </p>
+    {% endif %}
+
+    <div class="form-foot">
+        <a class="btn" href="{% url 'portal-staff' %}">Cancel</a>
+        <button class="btn btn-primary" type="submit">
+            {% if person %}Save changes{% else %}Add and send invite{% endif %}
+        </button>
+    </div>
+</form>
+
+{% endblock %}

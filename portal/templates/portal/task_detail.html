@@ -1,0 +1,371 @@
+{% extends 'portal/base.html' %}
+{% load portal_extras %}
+
+{% block title %}{{ task.title }} - Dash MFB{% endblock %}
+{% block heading %}<a class="back" href="{% url 'portal-home' %}"><i class="ri-arrow-left-line"></i></a> Task{% endblock %}
+
+{% block content %}
+
+<div class="detail">
+
+    <div class="detail-main">
+
+        <div class="card">
+            <div class="card-head">
+                <div>
+                    <h2 class="detail-title">{{ task.title }}</h2>
+                    <p class="detail-sub">
+                        {{ task.process_type.name }}
+                        {% if task.team %} · {{ task.team.name }}{% endif %}
+                        · raised {{ task.created_at|date:"j M Y" }}
+                    </p>
+                </div>
+                <span class="pill pill--{{ task.state_key }}">{{ task.state_label }}</span>
+            </div>
+
+            {% if task.notes %}<p class="detail-notes">{{ task.notes|linebreaksbr }}</p>{% endif %}
+
+            {% if task.approval_stage == 'auth_lead' or task.approval_stage == 'auth_head' %}
+                <p class="banner banner--warn">
+                    Work cannot start until this is permitted.
+                    {% if task.approval_stage == 'auth_lead' %}
+                        Waiting on {{ task.team.lead.get_full_name|default:task.team.lead.username }} (Team Lead).
+                    {% else %}
+                        Waiting on the Department Head.
+                    {% endif %}
+                </p>
+            {% elif task.authorised_at %}
+                <p class="banner banner--ok">
+                    Permitted {{ task.authorised_at|date:"j M Y, H:i" }}
+                    {% if task.authorised_by %}by {{ task.authorised_by.get_full_name|default:task.authorised_by.username }}{% endif %}.
+                </p>
+            {% endif %}
+
+            {% if task.is_archived %}
+                <p class="banner">
+                    Archived {{ task.archived_at|date:"j M Y" }}
+                    {% if task.archived_by %}by {{ task.archived_by.get_full_name|default:task.archived_by.username }}{% endif %}.
+                    It is hidden from the working queues but kept in full.
+                </p>
+            {% elif task.approval_stage == 'returned' %}
+                <p class="banner banner--warn">
+                    This was sent back for rework. The reason is in the sign-off history below.
+                    Fix it, then submit again.
+                </p>
+            {% elif task.approval_stage == 'lead_review' %}
+                <p class="banner">Waiting on {{ task.team.lead.get_full_name|default:task.team.lead.username }} (Team Lead).</p>
+            {% elif task.approval_stage == 'head_review' %}
+                <p class="banner">Team Lead has signed off. Waiting on the Department Head.</p>
+            {% elif task.approval_stage == 'approved' %}
+                <p class="banner banner--ok">
+                    Completed {{ task.completed_at|date:"j M Y, H:i" }}{% if task.finished_late %} - after the deadline{% endif %}.
+                </p>
+            {% endif %}
+        </div>
+
+        {% if task.checklist_items %}
+        <div class="card">
+            <h3 class="card-title">
+                Checklist
+                <span class="muted">{{ task.checklist_done_count }} of {{ task.checklist_total }} done</span>
+            </h3>
+
+            {% if task.checklist_differs_from_process %}
+                <p class="hint">
+                    This is the checklist as it stood when the task was raised.
+                    "{{ task.process_type.name }}" has been edited since - newer tasks
+                    use the updated list.
+                </p>
+            {% endif %}
+            <ul class="checks">
+                {% for item in task.checklist_items %}
+                    <li class="check {% if item.done %}is-done{% endif %}">
+                        {% if can_submit %}
+                            <form method="post" action="{% url 'task-checklist' task.id %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="index" value="{{ item.index }}">
+                                <button type="submit" class="check-btn">
+                                    <span class="check-box">{% if item.done %}<i class="ri-check-line"></i>{% endif %}</span>
+                                    <span>{{ item.text }}</span>
+                                </button>
+                            </form>
+                        {% else %}
+                            <span class="check-btn">
+                                <span class="check-box">{% if item.done %}<i class="ri-check-line"></i>{% endif %}</span>
+                                <span>{{ item.text }}</span>
+                            </span>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if can_authorise %}
+        <div class="card card--action">
+            <h3 class="card-title">Permission to start</h3>
+            <p class="hint">
+                This is {{ task.process_type.name }}, which must be permitted before
+                anyone works on it. Raised by
+                {{ task.created_by.get_full_name|default:task.created_by.username|default:"an unknown user" }}.
+            </p>
+            <form method="post" class="form">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="authComment">Comment <span class="muted">(required to refuse)</span></label>
+                    <textarea id="authComment" name="comment" rows="3"
+                              placeholder="e.g. limit not confirmed with Credit"></textarea>
+                </div>
+                <div class="row-actions">
+                    <button class="btn btn-danger" type="submit"
+                            formaction="{% url 'task-decline' task.id %}">Refuse</button>
+                    <button class="btn btn-ok" type="submit"
+                            formaction="{% url 'task-authorise' task.id %}">Permit</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if can_review %}
+        <div class="card card--action">
+            <h3 class="card-title">Your decision</h3>
+            <form method="post" class="form">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="reviewComment">Comment <span class="muted">(required to return)</span></label>
+                    <textarea id="reviewComment" name="comment" rows="3"
+                              placeholder="e.g. BVN does not match the ID document"></textarea>
+                </div>
+                <div class="row-actions">
+                    <button class="btn btn-danger" type="submit"
+                            formaction="{% url 'task-return' task.id %}">Return for rework</button>
+                    <button class="btn btn-ok" type="submit"
+                            formaction="{% url 'task-approve' task.id %}">Approve</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if sign_offs %}
+        <div class="card">
+            <h3 class="card-title">Sign-off history</h3>
+            <ol class="timeline">
+                {% for a in sign_offs %}
+                    <li class="tl tl--{{ a.decision }}">
+                        <p class="tl-head">
+                            <strong>{{ a.actor.get_full_name|default:a.actor.username|default:"Former user" }}</strong>
+                            <span class="muted">{{ a.stage_label }}</span>
+                            {% if a.decision == 'approved' %}approved{% else %}returned{% endif %}
+                            <span class="muted">· {{ a.created_at|date:"j M Y, H:i" }}</span>
+                        </p>
+                        {% if a.comment %}<p class="tl-note">{{ a.comment|linebreaksbr }}</p>{% endif %}
+                    </li>
+                {% endfor %}
+            </ol>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h3 class="card-title">
+                Files
+                {% if attachments %}<span class="muted">{{ attachments|length }}</span>{% endif %}
+            </h3>
+
+            {% if attachments %}
+                <div class="files">
+                    {% for a in attachments %}
+                        <div class="file">
+                            <a class="file-open" href="{% url 'attachment-download' a.id %}"
+                               {% if not a.is_image %}download{% endif %}>
+                                {% if a.is_image %}
+                                    <img class="file-thumb" src="{% url 'attachment-download' a.id %}" alt="">
+                                {% else %}
+                                    <span class="file-icon"><i class="ri-file-3-line"></i></span>
+                                {% endif %}
+                                <span class="file-text">
+                                    <span class="file-name">{{ a.original_name }}</span>
+                                    <span class="file-meta">
+                                        {{ a.size_label }} ·
+                                        {{ a.uploaded_by.get_full_name|default:a.uploaded_by.username|default:"Former user" }}
+                                        · {{ a.uploaded_at|date:"j M Y" }}
+                                    </span>
+                                </span>
+                            </a>
+                            {% if a.uploaded_by_id == user.id or is_management %}
+                                <form method="post" action="{% url 'attachment-delete' a.id %}"
+                                      data-confirm-title="Remove {{ a.original_name }}?"
+                                      data-confirm="The file is deleted permanently."
+                                      data-confirm-action="Remove">
+                                    {% csrf_token %}
+                                    <button class="icon-btn" type="submit" aria-label="Remove file">
+                                        <i class="ri-delete-bin-line"></i>
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="muted">No files yet.</p>
+            {% endif %}
+
+            <form method="post" action="{% url 'attachment-upload' task.id %}"
+                  enctype="multipart/form-data" class="upload">
+                {% csrf_token %}
+                <label class="drop" for="fileInput">
+                    <i class="ri-upload-2-line"></i>
+                    <span>Choose files</span>
+                    <input id="fileInput" type="file" name="files" multiple>
+                </label>
+                <button class="btn" type="submit">Upload</button>
+            </form>
+            <p class="hint">
+                Images, PDFs and Office documents, up to {{ max_upload_mb }} MB each.
+                You can pick more than one.
+            </p>
+        </div>
+
+        <div class="card">
+            <h3 class="card-title">Notes &amp; comments</h3>
+            <div class="comments">
+                {% for c in comments %}
+                    <div class="comment">
+                        <p class="comment-head">
+                            <strong>{{ c.author.get_full_name|default:c.author.username|default:"Former user" }}</strong>
+                            <span class="muted">{{ c.created_at|date:"j M Y, H:i" }}</span>
+                        </p>
+                        <p>{{ c.body|linebreaksbr }}</p>
+                    </div>
+                {% empty %}
+                    <p class="muted">No comments yet.</p>
+                {% endfor %}
+            </div>
+            <form method="post" action="{% url 'comment-create' task.id %}" class="form comment-form">
+                {% csrf_token %}
+                {{ comment_form.body }}
+                <button class="btn" type="submit">Post</button>
+            </form>
+        </div>
+
+    </div>
+
+    <aside class="detail-side">
+
+        {% if can_start or can_submit or can_request_auth or is_head %}
+        <div class="card">
+            <h3 class="card-title">Actions</h3>
+
+            {% if can_request_auth %}
+                <form method="post" action="{% url 'task-request-auth' task.id %}">
+                    {% csrf_token %}
+                    <button class="btn btn-primary btn-block" type="submit">Ask for permission again</button>
+                </form>
+                <p class="hint">It was refused. Amend it, then send it back up.</p>
+            {% endif %}
+
+            {% if can_start %}
+                <form method="post" action="{% url 'task-start' task.id %}">
+                    {% csrf_token %}
+                    <button class="btn btn-block" type="submit">Start work</button>
+                </form>
+            {% endif %}
+
+            {% if can_submit %}
+                <form method="post" action="{% url 'task-submit' task.id %}">
+                    {% csrf_token %}
+                    <button class="btn btn-primary btn-block" type="submit">Submit for review</button>
+                </form>
+                {% if task.checklist_outstanding %}
+                    <p class="hint">{{ task.checklist_outstanding }} checklist item(s) left before you can submit.</p>
+                {% endif %}
+            {% endif %}
+
+            {% if is_head %}
+                {% if task.is_archived %}
+                    <form method="post" action="{% url 'task-archive' task.id %}">
+                        {% csrf_token %}
+                        <button class="btn btn-block" type="submit">Restore from archive</button>
+                    </form>
+                {% else %}
+                    <form method="post" action="{% url 'task-archive' task.id %}"
+                          data-confirm-title="Archive this task?"
+                          data-confirm="It leaves the working queues but is kept in full, sign-off history included. You can restore it at any time."
+                          data-confirm-action="Archive"
+                          data-confirm-style="btn-primary">
+                        {% csrf_token %}
+                        <button class="btn btn-block btn-quiet" type="submit">Archive task</button>
+                    </form>
+                {% endif %}
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h3 class="card-title">Details</h3>
+            <dl class="facts">
+                <dt>Assignee</dt>
+                {# Guarded, not chained through default. Django resolves a #}
+                {# filter's argument even when the left side is empty, so #}
+                {# .username on nobody raises rather than falling through. #}
+                <dd>
+                    {% if task.assignee %}
+                        {{ task.assignee.get_full_name|default:task.assignee.username }}
+                    {% else %}
+                        <span class="muted">Unassigned</span>
+                    {% endif %}
+                </dd>
+                <dt>Team</dt>
+                <dd>{{ task.team.name|default:"-" }}</dd>
+                <dt>Reviewer</dt>
+                <dd>{{ task.team.lead.get_full_name|default:task.team.lead.username|default:"-" }}</dd>
+                <dt>Sign-off needed</dt>
+                <dd>{{ task.process_type.get_approval_level_display }}</dd>
+                <dt>Target</dt>
+                <dd>{{ task.process_type.target_hours|floatformat:"-1" }}h</dd>
+                <dt>Deadline</dt>
+                <dd>{% if task.deadline %}{{ task.deadline|date:"j M Y, H:i" }}{% else %}-{% endif %}</dd>
+                <dt>Started</dt>
+                <dd>{% if task.started_at %}{{ task.started_at|date:"j M Y, H:i" }}{% else %}Not started{% endif %}</dd>
+                <dt>Submitted</dt>
+                <dd>{% if task.submitted_at %}{{ task.submitted_at|date:"j M Y, H:i" }}{% else %}-{% endif %}</dd>
+            </dl>
+        </div>
+
+        {% if can_edit and task.is_open %}
+        <div class="card">
+            <h3 class="card-title">Edit</h3>
+            <form method="post" action="{% url 'task-update' task.id %}" class="form">
+                {% csrf_token %}
+                {% for error in form.non_field_errors %}<p class="err">{{ error }}</p>{% endfor %}
+                <div class="field">
+                    <label for="{{ form.title.id_for_label }}">Title</label>
+                    {{ form.title }}
+                    {% for error in form.title.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="field">
+                    <label for="{{ form.process_type.id_for_label }}">Process type</label>
+                    {{ form.process_type }}
+                </div>
+                <div class="field">
+                    <label for="{{ form.team.id_for_label }}">Team</label>
+                    {{ form.team }}
+                    {% for error in form.team.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="field">
+                    <label for="{{ form.assignee.id_for_label }}">Assignee</label>
+                    {{ form.assignee }}
+                    {% for error in form.assignee.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                </div>
+                <div class="field">
+                    <label for="{{ form.notes.id_for_label }}">Notes</label>
+                    {{ form.notes }}
+                </div>
+                <button class="btn btn-block" type="submit">Save changes</button>
+            </form>
+        </div>
+        {% endif %}
+
+    </aside>
+</div>
+
+{% endblock %}

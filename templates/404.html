@@ -1,0 +1,19 @@
+{% extends 'error_base.html' %}
+
+{% block title %}Page not found{% endblock %}
+{% block code %}404{% endblock %}
+{% block heading %}We couldn't find that page{% endblock %}
+
+{% block message %}
+    <p>The link may be out of date, or the task, process type or column it
+       pointed at may since have been deleted.</p>
+{% endblock %}
+
+{% block detail %}
+    {% if request_path %}<div class="detail">{{ request_path }}</div>{% endif %}
+{% endblock %}
+
+{% block actions %}
+    <a class="btn btn-primary" href="/dashboard/">Go to the task board</a>
+    <a class="btn btn-secondary" href="/">Sign in</a>
+{% endblock %}

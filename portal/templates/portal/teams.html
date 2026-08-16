@@ -1,0 +1,98 @@
+{% extends 'portal/base.html' %}
+
+{% block title %}Teams - Dash MFB{% endblock %}
+{% block heading %}Teams{% endblock %}
+
+{% block actions %}
+    <a class="btn btn-primary" href="{% url 'team-create' %}">
+        <i class="ri-add-line"></i> New team
+    </a>
+{% endblock %}
+
+{% block content %}
+
+<p class="page-intro">
+    A team is a lead and the people whose work they sign off. Every task belongs
+    to one, which is what decides who reviews it.
+</p>
+
+<div class="panel">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>Team</th>
+                <th>Lead</th>
+                <th>Members</th>
+                <th>Status</th>
+                <th class="num">Open work</th>
+                <th><span class="sr-only">Actions</span></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            <tr {% if not r.team.is_active %}class="is-off"{% endif %}>
+                <td data-label="Team"><strong>{{ r.team.name }}</strong></td>
+
+                <td data-label="Lead">
+                    <span class="dim">{{ r.team.lead.get_full_name|default:r.team.lead.username }}</span>
+                </td>
+
+                <td data-label="Members">
+                    {% for m in r.members %}
+                        <span class="tag tag--quiet">{{ m.get_full_name|default:m.username }}</span>
+                    {% empty %}
+                        <span class="dim">-</span>
+                    {% endfor %}
+                </td>
+
+                <td data-label="Status">
+                    {% if r.team.is_active %}
+                        <span class="pill pill--completed">Active</span>
+                    {% else %}
+                        <span class="pill">Retired</span>
+                    {% endif %}
+                </td>
+
+                <td data-label="Open work" class="num">
+                    {% if r.overdue %}
+                        <span class="due due--overdue">{{ r.open }} open, {{ r.overdue }} overdue</span>
+                    {% elif r.open %}
+                        <span class="due">{{ r.open }} open</span>
+                    {% else %}
+                        <span class="dim">Clear</span>
+                    {% endif %}
+                </td>
+
+                <td class="acts">
+                    <a class="btn btn-sm" href="{% url 'team-edit' r.team.id %}">Edit</a>
+
+                    <form method="post" action="{% url 'team-toggle' r.team.id %}"
+                          data-confirm-title="{% if r.team.is_active %}Retire{% else %}Bring back{% endif %} {{ r.team.name }}?"
+                          data-confirm="{% if r.team.is_active %}It stops appearing when raising new work. Finished tasks and their sign-off history are kept.{% else %}It can be picked again when raising work.{% endif %}"
+                          data-confirm-action="{% if r.team.is_active %}Retire{% else %}Bring back{% endif %}"
+                          {% if not r.team.is_active %}data-confirm-style="btn-primary"{% endif %}>
+                        {% csrf_token %}
+                        <button class="btn btn-sm {% if r.team.is_active %}btn-danger{% endif %}" type="submit">
+                            {% if r.team.is_active %}Retire{% else %}Bring back{% endif %}
+                        </button>
+                    </form>
+                </td>
+            </tr>
+        {% empty %}
+            <tr class="no-rows">
+                <td colspan="6">
+                    <div class="empty">
+                        <p class="empty-title">No teams yet</p>
+                        <p class="empty-sub">
+                            Create one before onboarding staff, so you can put people
+                            straight into it.
+                        </p>
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% endblock %}

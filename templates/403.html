@@ -1,0 +1,16 @@
+{% extends 'error_base.html' %}
+
+{% block title %}Not allowed{% endblock %}
+{% block code %}403{% endblock %}
+{% block heading %}You don't have access to this{% endblock %}
+
+{% block message %}
+    <p>Your account isn't permitted to view this page or perform this action.</p>
+    <p>Approving tasks and managing the process catalog are limited to Admin and
+       Team Lead accounts. Ask an administrator if you need access.</p>
+{% endblock %}
+
+{% block actions %}
+    <a class="btn btn-primary" href="/dashboard/">Back to the task board</a>
+    <a class="btn btn-secondary" href="/">Sign in as someone else</a>
+{% endblock %}
