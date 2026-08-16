@@ -1,0 +1,17 @@
+{% autoescape off %}Hello {{ user.get_full_name|default:user.get_username }},
+
+An account has been created for you on the Dash MFB Operations Portal.
+
+Open this link to choose your password:
+
+{{ protocol }}://{{ domain }}{% url 'invite-accept' uidb64=uid token=token %}
+
+You sign in with this email address: {{ user.email }}
+
+The link can only be used once and expires in {{ expiry_days }} days. If it has
+expired, ask an administrator to send you a new one.
+
+--
+Dash MFB Operations Portal
+This is an automated message; please don't reply to it.
+{% endautoescape %}

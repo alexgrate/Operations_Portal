@@ -1,0 +1,61 @@
+{% extends 'portal/base.html' %}
+
+{% block title %}{{ heading }} - Dash MFB{% endblock %}
+{% block heading %}<a class="back" href="{% url 'portal-teams' %}"><i class="ri-arrow-left-line"></i></a> {{ heading }}{% endblock %}
+
+{% block content %}
+
+<form method="post" class="form form-page">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="err err-top">{{ error }}</p>{% endfor %}
+
+    <div class="card">
+        <h3 class="card-title">The team</h3>
+
+        <div class="field">
+            <label for="{{ form.name.id_for_label }}">Team name</label>
+            {{ form.name }}
+            {% for error in form.name.errors %}<p class="err">{{ error }}</p>{% endfor %}
+        </div>
+
+        <div class="field">
+            <label for="{{ form.lead.id_for_label }}">Team lead</label>
+            {{ form.lead }}
+            {% for error in form.lead.errors %}<p class="err">{{ error }}</p>{% endfor %}
+            <p class="hint">
+                Only Team Leads and above appear here. If someone is missing, change
+                their role on the <a href="{% url 'portal-staff' %}">staff page</a> first.
+            </p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Who sits in it</h3>
+
+        <div class="field">
+            <label>Members</label>
+            {% if form.members.field.queryset %}
+                <div class="pick">{{ form.members }}</div>
+            {% else %}
+                <p class="hint">Nobody has been onboarded yet.</p>
+            {% endif %}
+            {% for error in form.members.errors %}<p class="err">{{ error }}</p>{% endfor %}
+            <p class="hint">{{ form.members.help_text }}</p>
+        </div>
+
+        <p class="hint">
+            The lead is added automatically. A lead who is not a member cannot be
+            given work in their own team, because a task's assignee has to belong
+            to the team it is raised under.
+        </p>
+    </div>
+
+    <div class="form-foot">
+        <a class="btn" href="{% url 'portal-teams' %}">Cancel</a>
+        <button class="btn btn-primary" type="submit">
+            {% if team %}Save changes{% else %}Create team{% endif %}
+        </button>
+    </div>
+</form>
+
+{% endblock %}

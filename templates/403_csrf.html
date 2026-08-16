@@ -1,0 +1,15 @@
+{% extends 'error_base.html' %}
+
+{% block title %}Session expired{% endblock %}
+{% block code %}403{% endblock %}
+{% block heading %}Your session expired{% endblock %}
+
+{% block message %}
+    <p>Sessions end after 15 minutes of inactivity, and the form you submitted
+       was signed with the old one.</p>
+    <p>Sign in again and resubmit - nothing was saved.</p>
+{% endblock %}
+
+{% block actions %}
+    <a class="btn btn-primary" href="/">Sign in again</a>
+{% endblock %}

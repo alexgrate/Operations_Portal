@@ -1,29 +1,31 @@
+from datetime import timedelta
+from pathlib import Path
+
 from django.conf import settings
 from django.contrib import messages
+from django.http import FileResponse
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.db.models import Max
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .forms import ColumnForm, ProcessTypeForm, TaskForm, CommentForm, _apply_target_and_checklist
-from .models import Column, ProcessType, Task, Comment, Escalation
-from datetime import timedelta
 from users.models import Profile
 
+from . import approvals, queues
+from .forms import CommentForm, ProcessTypeForm, TaskForm, _apply_target_and_checklist
+from .models import Attachment, ProcessType, Task
 
-# --- Authentication ---------------------------------------------------------
 
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('portal-dashboard')
+        return redirect('portal-home')
 
     email = ''
-
     if request.method == 'POST':
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '')
@@ -36,17 +38,12 @@ def login_view(request):
                 messages.error(request, 'That email and password combination is not recognised.')
             else:
                 auth_login(request, user)
-                messages.success(request, f'Welcome back, {user.get_short_name() or user.get_username()}.')
-                return redirect(_safe_next(request) or reverse('portal-dashboard'))
+                return redirect(_safe_next(request) or reverse('portal-home'))
 
-    return render(request, 'users/login.html', {
-        'email': email,
-        'google_login_enabled': settings.GOOGLE_LOGIN_ENABLED,
-    })
+    return render(request, 'users/login.html', {'email': email})
 
 
 def _safe_next(request):
-    """Return ?next= only when it points back at this site."""
     target = request.POST.get('next') or request.GET.get('next')
     if target and url_has_allowed_host_and_scheme(
         target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
@@ -61,405 +58,407 @@ def logout_view(request):
     messages.success(request, 'You have been logged out.')
     return redirect('portal-login')
 
-APPROVER_GROUPS = ('Admin', 'Team Lead')
 
-
-# def can_approve(user):
-#     return bool(
-#         user.is_authenticated
-#         and (user.is_staff or user.is_superuser
-#              or user.groups.filter(name__in=APPROVER_GROUPS).exists())
-#     )
-
-
-def can_approve(user):
-    if not user.is_authenticated:
-        return False
-
-    if user.is_superuser:
-        return True
-
-    profile = getattr(user, 'profile', None)
-
-    return bool(
-        profile
-        and profile.role in (
-            Profile.ROLE_ADMIN,
-            Profile.ROLE_TEAM_LEAD,
-        )
-    )
-
-# def apply_status_transition(task):
-#     """Set the timestamps that follow from the task's current column.
-
-#     Shared by create, move, update and approve so a task can't end up in a
-#     different state depending on which control the user happened to use.
-#     """
-#     status = task.status
-
-#     if status.starts and not task.started_at:
-#         task.started_at = timezone.now()
-
-#     if status.completes:
-#         if task.process_type.requires_approval and not task.approved_at:
-#             task.awaiting_approval = True
-#             task.completed_at = None
-#             task.completion_status = None
-#         else:
-#             task.awaiting_approval = False
-
-#             if not task.completed_at:
-#                 task.completed_at = timezone.now()
-
-#             task.completion_status = get_completion_status(task)
-#     else:
-#         task.awaiting_approval = False
-#         task.completed_at = None
-#         task.approved_at = None
-#         task.approved_by = None
-#         task.completion_status = None
-
-
-
-def apply_status_transition(task):
-    """Set the timestamps that follow from the task's current column."""
-
-    status = task.status
-
-    if status.starts and not task.started_at:
-        task.started_at = timezone.now()
-
-    if status.completes:
-        # Record when the staff member actually completed the task.
-        if not task.completed_at:
-            task.completed_at = timezone.now()
-
-        if task.process_type.requires_approval and not task.approved_at:
-            task.awaiting_approval = True
-        else:
-            task.awaiting_approval = False
-
-        task.completion_status = get_completion_status(task)
-
-    else:
-        task.awaiting_approval = False
-        task.completed_at = None
-        task.approved_at = None
-        task.approved_by = None
-        task.completion_status = None
-
-
-def compute_deadline_status(task):
-    """Where a task sits against its deadline."""
-
-    if task.completed_at:
-        return 'done'
-
-    if task.awaiting_approval:
-        return 'awaiting'
-
-    if not task.deadline:
-        return 'on-track'
-
-    now = timezone.now()
-
-    if now >= task.deadline:
-        return 'overdue'
-
-    total_seconds = (
-        task.deadline - task.created_at
-    ).total_seconds()
-
-    if total_seconds <= 0:
-        return 'overdue'
-
-    elapsed_seconds = (
-        now - task.created_at
-    ).total_seconds()
-
-    pct = elapsed_seconds / total_seconds
-
-    if pct >= 0.7:
-        return 'at-risk'
-
-    return 'on-track'
-
-
-def create_escalation_if_needed(task):
-    """
-    Create an escalation when a task becomes at-risk.
-
-    For now, all active Team Leads receive the escalation.
-    Branch-based routing can be added later.
-    """
-
-    if task.completed_at:
-        return
-
-    if not task.deadline:
-        return
-
-    if compute_deadline_status(task) != 'at-risk':
-        return
-
-    # Prevent duplicate escalations for the same task.
-    if Escalation.objects.filter(task=task).exists():
-        return
-
-    team_leads = User.objects.filter(
-        profile__role=Profile.ROLE_TEAM_LEAD,
-        is_active=True,
-    )
-
-    for team_lead in team_leads:
-        Escalation.objects.create(
-            task=task,
-            team_lead=team_lead,
-            message=(
-                f'Task "{task.title}" is at risk of missing '
-                f'its deadline.'
-            ),
-        )
-
-
-
-def get_completion_status(task):
-    """Return whether a completed task finished on time or late."""
-
-    if not task.completed_at:
-        return None
-
-    if not task.deadline:
-        return 'on-time'
-
-    if task.completed_at <= task.deadline:
-        return 'on-time'
-
-    return 'late'
-
-def admin_required(view_func):
+def management_required(view_func):
     def wrapper(request, *args, **kwargs):
-        if not (request.user.is_authenticated and hasattr(request.user, 'profile') and request.user.profile.role == 'admin'):
-            messages.error(request, 'Only Admins can do that.')
-            return redirect('portal-dashboard')
+        if not queues.is_management(request.user):
+            messages.error(request, 'That area is for Team Leads and above.')
+            return redirect('portal-home')
         return view_func(request, *args, **kwargs)
     return wrapper
 
 
-def management_required(view_func):
+def head_required(view_func):
     def wrapper(request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect('portal-login')
-
-        if request.user.is_superuser:
-            return view_func(request, *args, **kwargs)
-
-        profile = getattr(request.user, 'profile', None)
-
-        if profile and profile.role in (
-            Profile.ROLE_ADMIN,
-            Profile.ROLE_TEAM_LEAD
-        ):
-            return view_func(request, *args, **kwargs)
-
-        messages.error(
-            request,
-            'Only Admins and Team Leads can access that'
-        )
-        return redirect('portal-dashboard')
-
+        if not queues.is_head(request.user):
+            messages.error(request, 'That area is for the Department Head.')
+            return redirect('portal-home')
+        return view_func(request, *args, **kwargs)
     return wrapper
 
 
-def _clean_id(value):
-    """Accept a filter/lookup id from a query string only if it's a number."""
-    return value if (value or '').isdigit() else ''
+@login_required
+def home(request):
+    """Land on the queue that most likely needs this person."""
+    if queues.awaiting_me(request.user).exists():
+        return redirect('queue', key='awaiting')
+    return redirect('queue', key='my-work')
 
-
-def _dashboard_context(request, task_form=None, column_form=None):
-    columns = list(Column.objects.all())
-    tasks = Task.objects.select_related('process_type', 'status', 'assignee')
-
-    # This is for the admin and team lead 
-    # Staffs can only see their task 
-    profile = getattr(request.user, 'profile', None)
-
-    is_management = (
-        request.user.is_superuser
-        or (
-            profile
-            and profile.role in (
-                Profile.ROLE_ADMIN,
-                Profile.ROLE_TEAM_LEAD,
-            )
-        )
-    )
-
-    if not is_management:
-        tasks = tasks.filter(assignee=request.user)
-
-
-    if is_management:
-        process_types = ProcessType.objects.all()
-    else:
-        process_types = ProcessType.objects.filter(
-            tasks__assignee=request.user
-        ).distinct()
-
-    process_filter = _clean_id(request.GET.get('process'))
-    assignee_filter = _clean_id(request.GET.get('assignee'))
-    if process_filter:
-        tasks = tasks.filter(process_type_id=process_filter)
-    if assignee_filter:
-        tasks = tasks.filter(assignee_id=assignee_filter)
-    tasks = list(tasks)
-
-    columns_with_tasks = []
-    for column in columns:
-        column_tasks = [t for t in tasks if t.status_id == column.id]
-        for task in column_tasks:
-            task.deadline_status = compute_deadline_status(task)
-            create_escalation_if_needed(task)
-        columns_with_tasks.append({'column': column, 'tasks': column_tasks})
-
-    return {
-        'active_tab': 'board',
-        'can_approve': can_approve(request.user),
-        'columns_with_tasks': columns_with_tasks,
-        'all_columns': columns,
-        'process_types': process_types,
-        # 'staff': User.objects.all(),
-        'staff': User.objects.filter(is_active=True),
-        'task_form': task_form if task_form is not None else TaskForm(),
-        'column_form': column_form if column_form is not None else ColumnForm(),
-        'selected_process': process_filter,
-        'selected_assignee': assignee_filter,
-    }
-
-
-
-
-
-# --- Task board -------------------------------------------------------------
 
 @login_required
-def dashboard(request):
-    return render(request, 'portal/dashboard.html', _dashboard_context(request))
+def queue_view(request, key):
+    label, qs = queues.get_queue(key, request.user)
+    if qs is None:
+        raise PermissionDenied
+
+    search = request.GET.get('q', '').strip()
+    if search:
+        qs = qs.filter(title__icontains=search)
+
+    process = request.GET.get('process', '')
+    if process.isdigit():
+        qs = qs.filter(process_type_id=process)
+
+    tasks = list(qs)
+    tasks.sort(key=lambda t: (
+        0 if t.urgency == 'overdue' else 1,
+        t.deadline or timezone.now() + timedelta(days=3650),
+    ))
+
+    return render(request, 'portal/queue.html', {
+        'queue_key': key,
+        'queue_label': label,
+        'tasks': tasks,
+        'search': search,
+        'selected_process': process,
+        'process_types': ProcessType.objects.all(),
+        'task_form': TaskForm(user=request.user),
+        'can_create': True,
+    })
+
+
+@login_required
+def task_detail(request, pk, form=None):
+    task = get_object_or_404(
+        Task.objects.select_related('process_type', 'assignee', 'team', 'team__lead'), pk=pk,
+    )
+    if not queues.can_see_task(request.user, task):
+        raise PermissionDenied
+
+    return render(request, 'portal/task_detail.html', {
+        'task': task,
+        'form': form if form is not None else TaskForm(instance=task, user=request.user),
+        'comments': task.comments.select_related('author'),
+        'attachments': task.attachments.select_related('uploaded_by'),
+        'max_upload_mb': settings.MAX_UPLOAD_BYTES // (1024 * 1024),
+        'comment_form': CommentForm(),
+        'sign_offs': task.approvals.select_related('actor'),
+        'can_submit': approvals.can_submit(request.user, task),
+        'can_review': approvals.can_review(request.user, task),
+        'can_authorise': approvals.can_authorise(request.user, task),
+        'can_request_auth': approvals.can_request_authorisation(request.user, task),
+        'can_edit': queues.is_management(request.user) or task.assignee_id == request.user.id,
+        'can_start': approvals.can_start(request.user, task),
+    })
 
 
 @login_required
 @require_POST
 def task_create(request):
-    form = TaskForm(request.POST)
+    form = TaskForm(request.POST, user=request.user)
     if form.is_valid():
         task = form.save(commit=False)
-        task.deadline = timezone.now() + timedelta(
-            hours=task.process_type.target_hours
-        )
-        apply_status_transition(task)
+        task.created_by = request.user
+        # Work needing permission starts in a waiting state; how far up it has
+        # to go depends on who raised it.
+        approvals.apply_opening_state(task, request.user)
         task.save()
-        messages.success(request, 'Task created.')
-        return redirect('portal-dashboard')
 
-    messages.error(request, 'Could not create the task — check the highlighted fields.')
-    context = _dashboard_context(request, task_form=form)
-    context['open_task_modal'] = True
-    return render(request, 'portal/dashboard.html', context)
-
-
-@login_required
-@require_POST
-def task_move(request, pk):
-    task = get_object_or_404(Task, pk=pk)
-
-    status_id = _clean_id(request.POST.get('status'))
-    if not status_id:
-        messages.error(request, 'Pick a column to move the task to.')
-        return redirect('portal-dashboard')
-
-    task.status = get_object_or_404(Column, pk=status_id)
-    apply_status_transition(task)
-    task.save()
-
-    if task.awaiting_approval:
-        messages.info(request, f'“{task.title}” is now waiting for approval.')
-    return redirect('portal-dashboard')
-
-
-@login_required
-@admin_required
-@require_POST
-def task_delete(request, pk):
-    task = get_object_or_404(Task, pk=pk)
-    task.delete()
-    messages.success(request, 'Task deleted.')
-    return redirect('portal-dashboard')
-
-
-@login_required
-@admin_required
-@require_POST
-def column_create(request):
-    form = ColumnForm(request.POST)
-    if form.is_valid():
-        column = form.save(commit=False)
-        highest = Column.objects.aggregate(Max('order'))['order__max'] or 0
-        column.order = highest + 1
-        column.save()
-        messages.success(request, 'Column added.')
-        return redirect('portal-dashboard')
-
-    messages.error(request, 'Could not add the column — check the highlighted fields.')
-    context = _dashboard_context(request, column_form=form)
-    context['open_column_modal'] = True
-    return render(request, 'portal/dashboard.html', context)
-
-
-@login_required
-@admin_required
-@require_POST
-def column_delete(request, pk):
-    column = get_object_or_404(Column, pk=pk)
-    if column.tasks.exists():
-        messages.error(request, 'Move or delete the tasks in this column first.')
-    else:
-        column.delete()
-        messages.success(request, 'Column deleted.')
-    return redirect('portal-dashboard')
-
-
-# --- Process catalog --------------------------------------------------------
-def _catalog_context(request, form=None):
-    profile = getattr(request.user, 'profile', None)
-
-    is_management = (
-        request.user.is_superuser
-        or (
-            profile
-            and profile.role in (
-                Profile.ROLE_ADMIN,
-                Profile.ROLE_TEAM_LEAD,
+        if task.approval_stage in Task.AWAITING_AUTH:
+            messages.success(
+                request,
+                f'"{task.title}" created. It needs permission before work can start.',
             )
+        else:
+            messages.success(request, 'Task created.')
+        return redirect('task-detail', pk=task.pk)
+
+    messages.error(request, 'Could not create the task - check the highlighted fields.')
+    return render(request, 'portal/queue.html', {
+        'queue_key': 'my-work',
+        'queue_label': 'My work',
+        'tasks': list(queues.my_work(request.user)),
+        'process_types': ProcessType.objects.all(),
+        'task_form': form,
+        'open_new_task': True,
+        'can_create': True,
+    })
+
+
+@login_required
+@require_POST
+def task_update(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+    if not (queues.is_management(request.user) or task.assignee_id == request.user.id):
+        raise PermissionDenied
+
+    form = TaskForm(request.POST, instance=task, user=request.user)
+    if not form.is_valid():
+        messages.error(request, 'Could not save - check the highlighted fields.')
+        return task_detail(request, pk, form=form)
+
+    form.save()
+    messages.success(request, 'Task updated.')
+    return redirect('task-detail', pk=pk)
+
+
+@login_required
+@require_POST
+def task_start(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+    if not approvals.can_start(request.user, task):
+        if task.needs_authorisation:
+            messages.error(request, 'This task needs permission before work can start.')
+            return redirect('task-detail', pk=pk)
+        raise PermissionDenied
+
+    task.started_at = timezone.now()
+    task.save(update_fields=['started_at'])
+    return redirect('task-detail', pk=pk)
+
+
+@login_required
+@require_POST
+def task_authorise(request, pk):
+    """Give permission for work to start."""
+    task = get_object_or_404(Task, pk=pk)
+
+    if not approvals.can_authorise(request.user, task):
+        messages.error(request, 'You cannot give permission at this stage.')
+        return redirect('task-detail', pk=pk)
+
+    stage = approvals.authorise(task, request.user, request.POST.get('comment', '').strip())
+
+    if stage in Task.AWAITING_AUTH:
+        messages.success(request, f'Permitted - "{task.title}" now needs the Department Head.')
+    else:
+        messages.success(request, f'"{task.title}" is permitted. Work can start.')
+    return redirect('queue', key='authorise')
+
+
+@login_required
+@require_POST
+def task_decline(request, pk):
+    """Refuse permission. A reason is compulsory."""
+    task = get_object_or_404(Task, pk=pk)
+
+    if not approvals.can_authorise(request.user, task):
+        messages.error(request, 'You cannot refuse permission at this stage.')
+        return redirect('task-detail', pk=pk)
+
+    comment = request.POST.get('comment', '').strip()
+    if not comment:
+        messages.error(request, 'Say why you are refusing - whoever raised it needs to know.')
+        return redirect('task-detail', pk=pk)
+
+    approvals.decline(task, request.user, comment)
+    messages.success(request, f'"{task.title}" was not permitted.')
+    return redirect('queue', key='authorise')
+
+
+@login_required
+@require_POST
+def task_request_auth(request, pk):
+    """Put a refused task up for permission again after amending it."""
+    task = get_object_or_404(Task, pk=pk)
+
+    if not approvals.can_request_authorisation(request.user, task):
+        raise PermissionDenied
+
+    approvals.request_authorisation(task, task.created_by or request.user)
+    messages.success(request, 'Sent for permission again.')
+    return redirect('task-detail', pk=pk)
+
+
+@login_required
+@require_POST
+def task_checklist(request, pk):
+    """Tick or untick one checklist item."""
+    task = get_object_or_404(Task, pk=pk)
+    if task.assignee_id != request.user.id:
+        raise PermissionDenied
+
+    index = request.POST.get('index', '')
+    if index.isdigit():
+        done = dict(task.checklist_done or {})
+        done[index] = not done.get(index, False)
+        task.checklist_done = done
+        if not task.started_at:
+            task.started_at = timezone.now()
+        task.save(update_fields=['checklist_done', 'started_at'])
+
+    return redirect('task-detail', pk=pk)
+
+
+@login_required
+@require_POST
+def task_archive(request, pk):
+    """Hide a task from the working queues, keeping it and its sign-offs.
+
+    Tasks are never deleted - the approval chain on a completed task is the
+    record an auditor asks for.
+    """
+    task = get_object_or_404(Task, pk=pk)
+    if not queues.is_head(request.user):
+        raise PermissionDenied
+
+    if task.is_archived:
+        task.archived_at = None
+        task.archived_by = None
+        task.save(update_fields=['archived_at', 'archived_by'])
+        messages.success(request, f'"{task.title}" restored.')
+        return redirect('task-detail', pk=pk)
+
+    task.archived_at = timezone.now()
+    task.archived_by = request.user
+    task.save(update_fields=['archived_at', 'archived_by'])
+    messages.success(request, f'"{task.title}" archived. Find it under Archived.')
+    return redirect('queue', key='archived')
+
+
+@login_required
+@require_POST
+def task_submit(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+
+    if not approvals.can_submit(request.user, task):
+        messages.error(request, 'Only the person assigned to a task can submit it.')
+        return redirect('task-detail', pk=pk)
+
+    if task.checklist_outstanding:
+        messages.error(
+            request,
+            f'Finish the checklist first - {task.checklist_outstanding} item(s) still to tick.',
         )
+        return redirect('task-detail', pk=pk)
+
+    if approvals.submit(task) == Task.STAGE_APPROVED:
+        messages.success(request, f'"{task.title}" is complete - this type needs no sign-off.')
+    else:
+        messages.success(request, f'"{task.title}" sent for review.')
+    return redirect('portal-home')
+
+
+@login_required
+@require_POST
+def task_approve(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+
+    if not approvals.can_review(request.user, task):
+        messages.error(request, 'You cannot sign this task off at its current stage.')
+        return redirect('task-detail', pk=pk)
+
+    stage = approvals.approve(task, request.user, request.POST.get('comment', '').strip())
+    if stage == Task.STAGE_HEAD_REVIEW:
+        messages.success(request, f'Approved - "{task.title}" now goes to the Department Head.')
+    else:
+        messages.success(request, f'"{task.title}" is fully approved.')
+    return redirect('queue', key='awaiting')
+
+
+@login_required
+@require_POST
+def task_return(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+
+    if not approvals.can_review(request.user, task):
+        messages.error(request, 'You cannot return this task at its current stage.')
+        return redirect('task-detail', pk=pk)
+
+    comment = request.POST.get('comment', '').strip()
+    if not comment:
+        messages.error(request, 'Say why you are returning it - the assignee needs to know.')
+        return redirect('task-detail', pk=pk)
+
+    approvals.send_back(task, request.user, comment)
+    messages.success(request, f'Returned to {task.assignee or "the assignee"}.')
+    return redirect('queue', key='awaiting')
+
+
+@login_required
+@require_POST
+def attachment_upload(request, pk):
+    """Attach one or more files to a task."""
+    task = get_object_or_404(Task, pk=pk)
+    if not queues.can_see_task(request.user, task):
+        raise PermissionDenied
+
+    files = request.FILES.getlist('files')
+    if not files:
+        messages.error(request, 'Choose at least one file.')
+        return redirect('task-detail', pk=pk)
+
+    saved, rejected = 0, []
+    for upload in files:
+        suffix = Path(upload.name).suffix.lower()
+
+        if suffix not in settings.ALLOWED_UPLOAD_SUFFIXES:
+            rejected.append(f'{upload.name} (type not allowed)')
+            continue
+        if upload.size > settings.MAX_UPLOAD_BYTES:
+            limit = settings.MAX_UPLOAD_BYTES // (1024 * 1024)
+            rejected.append(f'{upload.name} (over {limit} MB)')
+            continue
+
+        Attachment.objects.create(
+            task=task, file=upload, original_name=upload.name[:255],
+            size=upload.size, uploaded_by=request.user,
+        )
+        saved += 1
+
+    if saved:
+        messages.success(request, f'{saved} file{"s" if saved != 1 else ""} attached.')
+    if rejected:
+        messages.error(request, 'Not attached: ' + '; '.join(rejected))
+    return redirect('task-detail', pk=pk)
+
+
+@login_required
+def attachment_download(request, pk):
+    """The only way to read an attachment. Checks the task first."""
+    attachment = get_object_or_404(Attachment.objects.select_related('task'), pk=pk)
+    if not queues.can_see_task(request.user, attachment.task):
+        raise PermissionDenied
+
+    # inline lets images preview; everything else the browser will offer to save
+    return FileResponse(
+        attachment.file.open('rb'),
+        as_attachment=not attachment.is_image,
+        filename=attachment.original_name,
     )
 
-    if is_management:
-        process_types = ProcessType.objects.all()
-    else:
-        process_types = ProcessType.objects.filter(
-            tasks__assignee=request.user
-        ).distinct()
-
-    return {
-        'active_tab': 'catalog',
-        'process_types': process_types,
-        'form': form if form is not None else ProcessTypeForm(),
-    }
-#  'process_types': ProcessType.objects.all(),
 
 @login_required
-def catalog_view(request):
-    return render(request, 'portal/catalog.html', _catalog_context(request))
+@require_POST
+def attachment_delete(request, pk):
+    attachment = get_object_or_404(Attachment.objects.select_related('task'), pk=pk)
+    task = attachment.task
+
+    # Whoever attached it, or management, can remove it.
+    if not (attachment.uploaded_by_id == request.user.id or queues.is_management(request.user)):
+        raise PermissionDenied
+
+    attachment.file.delete(save=False)
+    attachment.delete()
+    messages.success(request, 'Attachment removed.')
+    return redirect('task-detail', pk=task.pk)
+
+
+@login_required
+@require_POST
+def comment_create(request, pk):
+    task = get_object_or_404(Task, pk=pk)
+    if not queues.can_see_task(request.user, task):
+        raise PermissionDenied
+
+    form = CommentForm(request.POST)
+    if form.is_valid():
+        comment = form.save(commit=False)
+        comment.task = task
+        comment.author = request.user
+        comment.save()
+    else:
+        messages.error(request, 'Your comment was empty, so nothing was posted.')
+    return redirect('task-detail', pk=pk)
+
+
+@login_required
+def catalog_view(request, form=None):
+    return render(request, 'portal/catalog.html', {
+        'process_types': ProcessType.objects.all(),
+        'form': form if form is not None else ProcessTypeForm(),
+        'can_manage': queues.is_management(request.user),
+    })
 
 
 @login_required
@@ -469,210 +468,132 @@ def process_type_create(request):
     form = ProcessTypeForm(request.POST)
     if form.is_valid():
         process_type = form.save(commit=False)
-        checklist_text = form.cleaned_data.get('checklist_text', '')
-        process_type.checklist = [line.strip() for line in checklist_text.splitlines() if line.strip()]
         _apply_target_and_checklist(form, process_type)
         process_type.save()
         messages.success(request, 'Process type saved.')
         return redirect('portal-catalog')
 
-    messages.error(request, 'Could not save the process type — check the highlighted fields.')
-    context = _catalog_context(form=form)
-    context['open_process_modal'] = True
-    return render(request, 'portal/catalog.html', context)
+    messages.error(request, 'Could not save - check the highlighted fields.')
+    return catalog_view(request, form=form)
 
 
 @login_required
-@admin_required
+@management_required
+@require_POST
+def process_type_update(request, pk):
+    process_type = get_object_or_404(ProcessType, pk=pk)
+    form = ProcessTypeForm(request.POST, instance=process_type)
+    if form.is_valid():
+        updated = form.save(commit=False)
+        _apply_target_and_checklist(form, updated)
+        updated.save()
+        messages.success(request, 'Process type updated.')
+        return redirect('portal-catalog')
+
+    messages.error(request, 'Could not save - check the highlighted fields.')
+    return process_type_edit(request, pk, form=form)
+
+@login_required
+@management_required
+def process_type_edit(request, pk, form=None):
+    process_type = get_object_or_404(ProcessType, pk=pk)
+    return render(request, 'portal/process_type_form.html', {
+        'process_type': process_type,
+        'form': form if form is not None else ProcessTypeForm(instance=process_type),
+        'active_tab': 'catalog',
+        # Tasks already in flight keep their own frozen checklist and deadline,
+        # so the edit only affects work raised from now on. Say so.
+        'open_tasks': process_type.tasks.exclude(approval_stage=Task.STAGE_APPROVED).count(),
+    })
+
+
+@login_required
+@head_required
 @require_POST
 def process_type_delete(request, pk):
     process_type = get_object_or_404(ProcessType, pk=pk)
     if process_type.tasks.exists():
-        messages.error(request, 'Cannot delete — tasks still use this process type.')
+        messages.error(request, 'Cannot delete - tasks still use this process type.')
     else:
         process_type.delete()
         messages.success(request, 'Process type deleted.')
     return redirect('portal-catalog')
 
 
-# --- Analytics --------------------------------------------------------------
-@admin_required
 @login_required
+@management_required
 def analytics_view(request):
-    tasks = list(Task.objects.select_related('process_type', 'assignee').all())
-    completed = [t for t in tasks if t.completed_at]
-    not_completed = [t for t in tasks if not t.completed_at]
+    tasks = list(Task.objects.select_related('process_type', 'assignee', 'team'))
+    done = [t for t in tasks if t.completed_at]
+    open_tasks = [t for t in tasks if t.is_open]
 
-    overdue_count = sum(1 for t in not_completed if compute_deadline_status(t) == 'overdue')
-    at_risk_count = sum(1 for t in not_completed if compute_deadline_status(t) == 'at-risk')
+    avg_hours = None
+    if done:
+        avg_hours = round(
+            sum((t.completed_at - t.created_at).total_seconds() for t in done)
+            / len(done) / 3600, 1,
+        )
 
-    avg_turnaround_hours = None
-    if completed:
-        total_seconds = sum((t.completed_at - t.created_at).total_seconds() for t in completed)
-        avg_turnaround_hours = round((total_seconds / len(completed)) / 3600, 1)
-
-    def group_and_summarize(key_fn):
-        """Bucket the tasks, then work out per-bucket stats."""
+    def summarise(key_fn):
         buckets = {}
         for task in tasks:
             buckets.setdefault(key_fn(task), []).append(task)
 
         rows = []
         for name, items in buckets.items():
-            done = [t for t in items if t.completed_at]
-            overdue = sum(
-                1 for t in items
-                if not t.completed_at and compute_deadline_status(t) == 'overdue'
-            )
-            avg_hours = None
-            if done:
-                avg_hours = round(
-                    sum((t.completed_at - t.created_at).total_seconds() for t in done)
-                    / len(done) / 3600,
-                    1,
+            finished = [t for t in items if t.completed_at]
+            overdue = sum(1 for t in items if t.urgency == 'overdue')
+            hours = None
+            if finished:
+                hours = round(
+                    sum((t.completed_at - t.created_at).total_seconds() for t in finished)
+                    / len(finished) / 3600, 1,
                 )
-            rows.append({'name': name, 'count': len(items), 'overdue': overdue, 'avg_hours': avg_hours})
+            rows.append({'name': name, 'count': len(items),
+                         'overdue': overdue, 'avg_hours': hours})
 
         rows.sort(key=lambda r: -r['count'])
-
-        busiest = rows[0]['count'] if rows else 0
+        top = rows[0]['count'] if rows else 0
         for row in rows:
-            on_time = row['count'] - row['overdue']
-            row['pct'] = round(on_time / busiest * 100, 2) if busiest else 0
-            row['overdue_pct'] = round(row['overdue'] / busiest * 100, 2) if busiest else 0
-
+            row['pct'] = round((row['count'] - row['overdue']) / top * 100, 2) if top else 0
+            row['overdue_pct'] = round(row['overdue'] / top * 100, 2) if top else 0
         return rows
 
-    def staff_name(task):
-        if not task.assignee:
-            return 'Unassigned'
-        return task.assignee.get_full_name() or task.assignee.get_username()
-
-    context = {
-        'active_tab': 'analytics',
+    return render(request, 'portal/analytics.html', {
         'total': len(tasks),
-        'completed_count': len(completed),
-        'awaiting_count': sum(1 for t in not_completed if t.awaiting_approval),
-        'overdue_count': overdue_count,
-        'at_risk_count': at_risk_count,
-        'avg_turnaround_hours': avg_turnaround_hours,
-        'by_process': group_and_summarize(lambda t: t.process_type.name),
-        'by_staff': group_and_summarize(lambda t: t.assignee.get_full_name() if t.assignee else 'Unassigned'),
-    }
-    return render(request, 'portal/analytics.html', context)
-# 'by_staff': group_and_summarize(staff_name),
+        'completed_count': len(done),
+        'open_count': len(open_tasks),
+        'overdue_count': sum(1 for t in open_tasks if t.urgency == 'overdue'),
+        'awaiting_count': sum(1 for t in tasks if t.approval_stage in Task.IN_REVIEW),
+        'avg_hours': avg_hours,
+        'by_process': summarise(lambda t: t.process_type.name),
+        'by_staff': summarise(
+            lambda t: (t.assignee.get_full_name() or t.assignee.get_username())
+            if t.assignee else 'Unassigned'
+        ),
+    })
 
 
 @login_required
-@require_POST
-def comment_create(request, pk):
-    task = get_object_or_404(Task, pk=pk)
-    form = CommentForm(request.POST)
+@management_required
+def staff_view(request):
+    """Who is in which team, and what they are carrying."""
+    # Deactivated people stay listed so they can be reactivated.
+    people = (
+        User.objects.select_related('profile')
+        .prefetch_related('profile__teams', 'assigned_tasks')
+        .order_by('-is_active', 'first_name', 'username')
+    )
 
-    if form.is_valid():
-        comment = form.save(commit=False)
-        comment.task = task
-        comment.author = request.user
-        comment.save()
-    else:
-        messages.error(request, 'Your comment was empty, so nothing was posted.')
+    rows = []
+    for person in people:
+        open_tasks = [t for t in person.assigned_tasks.all() if t.is_open]
+        rows.append({
+            'user': person,
+            'role': person.profile.get_role_display() if hasattr(person, 'profile') else '-',
+            'teams': list(person.profile.teams.all()) if hasattr(person, 'profile') else [],
+            'open': len(open_tasks),
+            'overdue': sum(1 for t in open_tasks if t.urgency == 'overdue'),
+        })
 
-    return redirect('task-edit', pk=pk)
-
-
-
-@login_required
-def task_edit(request, pk, edit_form=None):
-    task = get_object_or_404(Task, pk=pk)
-    context = _dashboard_context(request)
-    # The template's edit modal reads `edit_form`; `task_form` stays bound to
-    # the separate "New Task" modal on the same page.
-    context['edit_form'] = edit_form if edit_form is not None else TaskForm(instance=task)
-    context['edit_task'] = task
-    context['comments'] = task.comments.select_related('author')
-    context['comment_form'] = CommentForm()
-    return render(request, 'portal/dashboard.html', context)
-
-
-@login_required
-@require_POST
-def task_update(request, pk):
-    task = get_object_or_404(Task, pk=pk)
-    form = TaskForm(request.POST, instance=task)
-
-    if not form.is_valid():
-        # Re-open the edit modal with the errors instead of dropping the edit.
-        messages.error(request, 'Could not update the task — check the highlighted fields.')
-        return task_edit(request, pk, edit_form=form)
-
-    updated = form.save(commit=False)
-    apply_status_transition(updated)
-    updated.save()
-
-    if updated.awaiting_approval:
-        messages.info(request, f'“{updated.title}” is now waiting for approval.')
-    else:
-        messages.success(request, 'Task updated.')
-    return redirect('portal-dashboard')
-
-
-@login_required
-@require_POST
-def task_approve(request, pk):
-    task = get_object_or_404(Task, pk=pk)
-
-    if not can_approve(request.user):
-        messages.error(request, 'You do not have permission to approve tasks.')
-        return redirect('portal-dashboard')
-
-    if not task.awaiting_approval:
-        messages.info(request, 'That task is not waiting for approval.')
-        return redirect('portal-dashboard')
-
-    # This records who approved it and when
-    task.approved_at = timezone.now()
-    task.approved_by = request.user
-
-    # This actual completion time is the approval time 
-    # task.completed_at = task.approved_at
-    task.awaiting_approval = False
-
-    # Determine whether the task was completed before its deadline
-    task.completion_status = get_completion_status(task)
-
-    # apply_status_transition(task)
-    task.save()
-
-    messages.success(request, f'Approved “{task.title}”.')
-    return redirect('portal-dashboard')
-
-
-# ------------------- Process type edit and update ------------------
-
-@login_required
-@admin_required
-def process_type_edit(request, pk):
-    process_type = get_object_or_404(ProcessType, pk=pk)
-    context = {
-        'process_types': ProcessType.objects.all(),
-        'form': ProcessTypeForm(instance=process_type),
-        'active_tab': 'catalog',
-        'edit_process_type': process_type,
-    }
-    return render(request, 'portal/catalog.html', context)
-
-
-@login_required
-@admin_required
-def process_type_update(request, pk):
-    process_type = get_object_or_404(ProcessType, pk=pk)
-    if request.method == 'POST':
-        form = ProcessTypeForm(request.POST, instance=process_type)
-        if form.is_valid():
-            form.save(commit=False)
-            _apply_target_and_checklist(form, process_type)
-            process_type.save()
-            messages.success(request, 'Process type updated.')
-        else:
-            messages.error(request, 'Could not update — check the form.')
-    return redirect('portal-catalog')
+    return render(request, 'portal/staff.html', {'rows': rows, 'active_tab': 'staff'})

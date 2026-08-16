@@ -1,0 +1,1 @@
+{% if overdue %}Overdue: {{ task.title }}{% elif is_final %}{{ time_left }} left: {{ task.title }}{% else %}Reminder: {{ task.title }} is due in {{ time_left }}{% endif %}

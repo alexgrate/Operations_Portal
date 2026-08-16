@@ -1,16 +1,7 @@
-"""Send Django email through the Microsoft Graph API.
+"""Send email through Microsoft Graph.
 
-Office 365 tenants generally have SMTP AUTH disabled, so Django's SMTP backend
-can't be used with a normal app registration. This backend instead gets an
-application token via the client-credentials flow and posts each message to
-Graph's sendMail endpoint.
-
-The app registration needs the *application* permission Mail.Send (not the
-delegated one), with admin consent granted, and MS_GRAPH_SENDER must be a real
-mailbox in the tenant.
-
-Uses urllib from the standard library so the project doesn't take on an HTTP
-dependency just for this.
+Office 365 disables SMTP AUTH, so this uses the client-credentials flow.
+The app registration needs the Mail.Send application permission.
 """
 
 import json
@@ -29,11 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _ssl_context():
-    """TLS context with a working CA bundle.
-
-    Python builds from python.org on macOS ship without root certificates, so
-    fall back to certifi's bundle when the system store is empty.
-    """
+    """TLS context, falling back to certifi when the system store is empty."""
     context = ssl.create_default_context()
     if context.cert_store_stats().get('x509_ca', 0):
         return context
@@ -47,8 +34,6 @@ TOKEN_URL = 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token'
 SENDMAIL_URL = 'https://graph.microsoft.com/v1.0/users/{sender}/sendMail'
 SCOPE = 'https://graph.microsoft.com/.default'
 
-# Refresh a little before the token actually expires so an in-flight send
-# doesn't get rejected.
 EXPIRY_SKEW_SECONDS = 120
 
 
@@ -70,7 +55,6 @@ class MicrosoftGraphEmailBackend(BaseEmailBackend):
         self.timeout = timeout if timeout is not None else 15
         self.ssl_context = _ssl_context()
 
-    # -- token handling ---------------------------------------------------
 
     def _get_token(self):
         now = time.monotonic()
@@ -115,7 +99,6 @@ class MicrosoftGraphEmailBackend(BaseEmailBackend):
             cls._token_expires_at = now + int(body.get('expires_in', 3600)) - EXPIRY_SKEW_SECONDS
             return token
 
-    # -- message conversion -----------------------------------------------
 
     @staticmethod
     def _recipients(addresses):
@@ -124,8 +107,6 @@ class MicrosoftGraphEmailBackend(BaseEmailBackend):
     def _build_payload(self, message):
         body_type, body_content = 'Text', message.body
 
-        # EmailMultiAlternatives attaches the HTML part here; Graph takes one
-        # body, so prefer the HTML version when there is one.
         for content, mimetype in getattr(message, 'alternatives', []) or []:
             if mimetype == 'text/html':
                 body_type, body_content = 'HTML', content
@@ -149,8 +130,6 @@ class MicrosoftGraphEmailBackend(BaseEmailBackend):
 
         return payload
 
-    # -- sending ----------------------------------------------------------
-
     def _post_message(self, token, message):
         request = urllib.request.Request(
             SENDMAIL_URL.format(sender=urllib.parse.quote(self.sender)),
@@ -166,7 +145,6 @@ class MicrosoftGraphEmailBackend(BaseEmailBackend):
             with urllib.request.urlopen(
                 request, timeout=self.timeout, context=self.ssl_context
             ) as response:
-                # sendMail answers 202 Accepted with an empty body.
                 return 200 <= response.status < 300
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors='replace')

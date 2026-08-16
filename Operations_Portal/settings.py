@@ -69,12 +69,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'portal',
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',
-    'allauth.socialaccount.providers.google',
-
-    
 ]
 
 MIDDLEWARE = [
@@ -85,8 +79,10 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    
-    'allauth.account.middleware.AccountMiddleware',
+
+    # Last, so the messages framework above it has already prepared the
+    # request. Converts uncaught ValidationErrors into a flash message.
+    'portal.middleware.FriendlyValidationErrorMiddleware',
 ]
 
 ROOT_URLCONF = 'Operations_Portal.urls'
@@ -101,6 +97,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'portal.context_processors.sidebar',
             ],
         },
     },
@@ -141,51 +138,16 @@ else:
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
+# People sign in with their corporate email address only - usernames are not
+# accepted. EmailBackend subclasses ModelBackend, so permission checks still
+# work; adding django.contrib.auth.backends.ModelBackend back here would
+# silently re-enable username logins.
 AUTHENTICATION_BACKENDS = [
     'users.backends.EmailOrUsernameBackend',
-    'django.contrib.auth.backends.ModelBackend',
-    # Required for "Continue with Google" - allauth signs the user in through
-    # its own backend, not the two above.
-    'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
-
-# Google sign-in (django-allauth)
-# Credentials come from .env. Configuring them here rather than through the
-# admin means no django.contrib.sites row is needed and nothing secret is
-# stored in the database.
-GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
-GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
-
-# The login page hides the Google button when this is False.
-GOOGLE_LOGIN_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
-
-SOCIALACCOUNT_PROVIDERS = {
-    'google': {
-        'APP': {
-            'client_id': GOOGLE_CLIENT_ID,
-            'secret': GOOGLE_CLIENT_SECRET,
-            'key': '',
-        },
-        'SCOPE': ['profile', 'email'],
-        'AUTH_PARAMS': {'access_type': 'online'},
-    }
-}
-
-# Only @dash-mfb.com Google accounts are accepted - enforced in
-# portal/adapters.py, which allauth calls before completing a social login.
-SOCIALACCOUNT_ADAPTER = 'portal.adapters.MySocialAccountAdapter'
-
-# Trust the email Google gives us, so nobody is asked to verify it again,
-# and never let allauth put up its own signup form for a social login.
-SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
-SOCIALACCOUNT_EMAIL_REQUIRED = True
-SOCIALACCOUNT_AUTO_SIGNUP = True
-SOCIALACCOUNT_LOGIN_ON_GET = True
-ACCOUNT_EMAIL_VERIFICATION = 'none'
-
 LOGIN_URL = 'portal-login'
-LOGIN_REDIRECT_URL = 'portal-dashboard'
+LOGIN_REDIRECT_URL = 'portal-home'
 LOGOUT_REDIRECT_URL = 'portal-login'
 
 # Password-reset email, sent through the Microsoft Graph API.
@@ -207,6 +169,86 @@ else:
     DEFAULT_FROM_EMAIL = 'Dash MFB Operations Portal <no-reply@dash-mfb.com>'
 
 PASSWORD_RESET_TIMEOUT = 60 * 60 * 3
+
+# Deadline reminders, sent by the send_task_reminders management command.
+#
+# The command has no HTTP request to work out the site address from, so the
+# links in the emails are built from SITE_URL. Get this wrong and every
+# reminder points somewhere useless.
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000').rstrip('/')
+
+REMINDERS_ENABLED = env_bool('REMINDERS_ENABLED', True)
+
+# How the chasing is paced.
+#
+#   milestones  fractions of this task's own deadline, so a 2 hour job and a
+#               2 day job each get the same small number of emails
+#   interval    a fixed clock, the same for every task whatever its target
+#
+# Milestones are the default because a fixed clock sends far too much on a
+# long task: every 30 minutes over a 24 hour target is 48 emails, which people
+# filter to junk, taking the final warning with it.
+REMINDER_MODE = os.environ.get('REMINDER_MODE', 'milestones').strip().lower()
+
+if REMINDER_MODE not in ('milestones', 'interval'):
+    raise ImproperlyConfigured(
+        f'REMINDER_MODE must be "milestones" or "interval", got "{REMINDER_MODE}".'
+    )
+
+# Percentages of the way to the deadline at which to send. "50,80" on a 24 hour
+# task means one email after 12 hours and another after 19 hours 12 minutes.
+REMINDER_MILESTONES = sorted(
+    int(part) for part in env_list('REMINDER_MILESTONES', '50,80')
+)
+
+# Used only when REMINDER_MODE is "interval".
+REMINDER_EVERY_MINUTES = int(os.environ.get('REMINDER_EVERY_MINUTES', '30'))
+
+# The one-off last call, sent once when this many minutes remain.
+REMINDER_FINAL_MINUTES = int(os.environ.get('REMINDER_FINAL_MINUTES', '15'))
+
+# Once a task is late, email is not what fixes it, so slow right down. Daily.
+REMINDER_OVERDUE_EVERY_MINUTES = int(os.environ.get('REMINDER_OVERDUE_EVERY_MINUTES', '1440'))
+
+# Backstop for "interval" mode, so a task nobody ever touches does not email
+# someone forever. Milestone mode is self-limiting.
+REMINDER_MAX_PER_TASK = int(os.environ.get('REMINDER_MAX_PER_TASK', '8'))
+
+
+def env_hours(name, default):
+    """"8-18" -> (8, 18). Equal values mean no quiet period at all."""
+    raw = os.environ.get(name, default)
+    try:
+        start, end = (int(part) for part in raw.split('-', 1))
+    except ValueError:
+        raise ImproperlyConfigured(f'{name} must look like "8-18", got "{raw}".')
+    if not (0 <= start <= 24 and 0 <= end <= 24):
+        raise ImproperlyConfigured(f'{name} hours must be between 0 and 24, got "{raw}".')
+    return start, end
+
+
+# Routine reminders are held back outside these hours, so a deadline running
+# through the night does not email anyone at 3am. Set to "0-0" to send at any
+# hour. The final warning ignores this - it is the whole point of it.
+REMINDER_HOURS = env_hours('REMINDER_HOURS', '8-18')
+
+
+# Approval digests: one email per manager listing the work waiting on their
+# decision, sent by the send_approval_digests management command. One email
+# each rather than one per task, or a Department Head covering several teams
+# would be buried. REMINDER_HOURS applies to these too.
+APPROVAL_DIGESTS_ENABLED = env_bool('APPROVAL_DIGESTS_ENABLED', True)
+
+# Shortest gap between two digests to the same person, so a busy morning does
+# not produce an email every time a task is raised.
+APPROVAL_DIGEST_MIN_GAP_MINUTES = int(os.environ.get('APPROVAL_DIGEST_MIN_GAP_MINUTES', '60'))
+
+# How often to send again when nothing new has arrived but work is still
+# sitting there unactioned.
+APPROVAL_DIGEST_EVERY_MINUTES = int(os.environ.get('APPROVAL_DIGEST_EVERY_MINUTES', '240'))
+
+# Invites last longer than a reset - a new starter may not check mail same day.
+INVITE_LINK_TIMEOUT = 7 * 24 * 60 * 60
 
 
 SESSION_COOKIE_AGE = 15 * 60
@@ -276,7 +318,25 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
+# Uploaded task attachments.
+#
+# There is deliberately NO MEDIA_URL route and nothing serves this directory
+# directly. Attachments hold customer documents, so every download goes
+# through portal.views.attachment_download, which checks who is asking.
+# Do not add static()/MEDIA_URL serving for this path.
+MEDIA_ROOT = BASE_DIR / 'mediafiles'
+
+MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', '10')) * 1024 * 1024
+ALLOWED_UPLOAD_SUFFIXES = {
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt',
+}
+
 STATIC_URL = 'static/'
+
+# Appended to the stylesheet link so a changed CSS file is never served from
+# the browser cache. Bump when you edit the CSS.
+ASSET_VERSION = '11'
 
 # Where `manage.py collectstatic` writes to. Required before deploying -
 # with DEBUG off, Django does not serve static files itself.

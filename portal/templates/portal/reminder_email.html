@@ -1,0 +1,21 @@
+{% autoescape off %}Hello {% if task.assignee %}{{ task.assignee.get_full_name|default:task.assignee.get_username }}{% else %}there{% endif %},
+
+{% if overdue %}This task passed its deadline {{ overdue_by }} ago and has not been submitted.{% elif is_final %}This task is due in {{ time_left }}.{% else %}This is a reminder about a task assigned to you. It is due in {{ time_left }}.{% endif %}
+
+  {{ task.title }}
+  Process: {{ task.process_type.name }}{% if task.team %}
+  Team: {{ task.team.name }}{% endif %}
+  Deadline: {{ task.deadline|date:"j M Y, H:i" }}
+  Status: {{ task.state_label }}{% if task.checklist_total %}
+  Checklist: {{ task.checklist_done_count }} of {{ task.checklist_total }} done{% endif %}
+
+Open it here:
+
+{{ url }}
+{% if not task.started_at %}
+Work has not been started on this task yet. Open it and press Start work.
+{% endif %}
+--
+Dash MFB Operations Portal
+This is an automated message; please don't reply to it.
+{% endautoescape %}

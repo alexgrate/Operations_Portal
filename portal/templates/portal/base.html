@@ -1,68 +1,200 @@
-{% load static %}
-
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Dash MFB — Operations Portal{% endblock title %}</title>
-    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <title>{% block title %}Dash MFB - Operations Portal{% endblock title %}</title>
+    <link rel="stylesheet" href="{% static 'css/portal.css' %}?v={{ asset_version }}">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css" rel="stylesheet" />
 </head>
 
 <body>
+<div class="shell">
 
-    <header class="top-bar">
-        <div class="head">
-            <img src="{% static 'images/DASH LOGO.jpg' %}" alt="Logo">
-            <div class="head-text">
-                <span class="head-name">Dash MFB</span>
-                <span class="head-sub">Operations Portal</span>
-            </div>
+    <div class="scrim" id="scrim" hidden></div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <img src="{% static 'images/DASH LOGO.jpg' %}" alt="">
+            <span class="brand-text">
+                <strong>Dash MFB</strong>
+                <small>Operations</small>
+            </span>
+            <button class="sidebar-close" type="button" data-close-nav aria-label="Close menu">
+                <i class="ri-close-line"></i>
+            </button>
         </div>
 
-        <nav class="tabs" role="tablist">
-            <a class="tab-btn {% if active_tab == 'board' %}active{% endif %}"
-                href="{% url 'portal-dashboard' %}">Task Board</a>
-            <a class="tab-btn {% if active_tab == 'catalog' %}active{% endif %}"
-                href="{% url 'portal-catalog' %}">Process Catalog</a>
-            {% if user.is_superuser or user.profile.role == 'admin' or user.profile.role == 'team_lead' %}
-            <a class="tab-btn {% if active_tab == 'analytics' %}active{% endif %}"
-                href="{% url 'portal-analytics' %}">Analytics</a>
+        <nav class="nav">
+            <p class="nav-heading">Work</p>
+            {% for q in sidebar_queues %}
+                <a class="nav-item {% if queue_key == q.key %}is-active{% endif %}"
+                   href="{% url 'queue' key=q.key %}">
+                    <i class="{{ q.icon }}"></i>
+                    <span class="nav-label">{{ q.label }}</span>
+                    {% if q.count %}<span class="nav-count">{{ q.count }}</span>{% endif %}
+                </a>
+            {% endfor %}
+
+            <p class="nav-heading">Reference</p>
+            <a class="nav-item {% if active_tab == 'catalog' %}is-active{% endif %}"
+               href="{% url 'portal-catalog' %}">
+                <i class="ri-book-2-line"></i><span class="nav-label">Process catalog</span>
+            </a>
+            {% if is_management %}
+                <a class="nav-item {% if active_tab == 'staff' %}is-active{% endif %}"
+                   href="{% url 'portal-staff' %}">
+                    <i class="ri-group-line"></i><span class="nav-label">Staff</span>
+                </a>
+                <a class="nav-item {% if active_tab == 'teams' %}is-active{% endif %}"
+                   href="{% url 'portal-teams' %}">
+                    <i class="ri-organization-chart"></i><span class="nav-label">Teams</span>
+                </a>
+                <a class="nav-item {% if active_tab == 'analytics' %}is-active{% endif %}"
+                   href="{% url 'portal-analytics' %}">
+                    <i class="ri-bar-chart-line"></i><span class="nav-label">Analytics</span>
+                </a>
+            {% endif %}
+            {% if user.is_superuser %}
+                <a class="nav-item" href="/admin/">
+                    <i class="ri-settings-3-line"></i><span class="nav-label">Admin</span>
+                </a>
             {% endif %}
         </nav>
 
-        <div class="user-wrap">
-            <span class="user-name">{{ user.get_full_name|default:user.username }}</span>
+        <div class="sidebar-foot">
+            <p class="who-name">{{ user.get_full_name|default:user.username }}</p>
+            <p class="who-role">{{ user.profile.get_role_display }}</p>
             <form method="post" action="{% url 'portal-logout' %}">
                 {% csrf_token %}
-                <button type="submit" class="logout-btn" title="Log out">
-                    <i class="ri-logout-box-r-line"></i>
+                <button class="sign-out" type="submit">
+                    <i class="ri-logout-box-r-line"></i> Sign out
                 </button>
             </form>
         </div>
+    </aside>
 
-    </header>
+    <main class="main">
+        <header class="topline">
+            <button class="menu-btn" type="button" id="menuBtn"
+                    aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+                <i class="ri-menu-line"></i>
+            </button>
+            <h1>{% block heading %}{% endblock heading %}</h1>
+            <div class="topline-actions">{% block actions %}{% endblock actions %}</div>
+        </header>
 
-    {% if messages %}
-    <div class="page-messages">
-        {% for message in messages %}
-        <p class="page-alert page-alert--{{ message.tags|default:'info' }}"
-            role="{% if message.level >= 30 %}alert{% else %}status{% endif %}">
-            {{ message }}
-        </p>
-        {% endfor %}
-    </div>
-    
-    {% endif %}
+        {% if messages %}
+            <div class="flashes">
+                {% for message in messages %}
+                    <p class="flash flash--{{ message.tags|default:'info' }}"
+                       role="{% if message.level >= 30 %}alert{% else %}status{% endif %}">{{ message }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
 
-    <main>
-        {% block content %}
-
-        {% endblock content %}
+        <div class="content">
+            {% block content %}{% endblock content %}
+        </div>
     </main>
 
-</body>
+    <div class="modal is-hidden" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+        <div class="modal-card modal-card--sm">
+            <div class="modal-head">
+                <h2 id="confirmTitle">Are you sure?</h2>
+                <button class="icon-btn" type="button" data-confirm-cancel aria-label="Cancel">
+                    <i class="ri-close-line"></i>
+                </button>
+            </div>
+            <div class="confirm-body">
+                <p id="confirmText"></p>
+            </div>
+            <div class="modal-foot">
+                <button class="btn" type="button" data-confirm-cancel>Cancel</button>
+                <button class="btn btn-danger" type="button" id="confirmOk">Confirm</button>
+            </div>
+        </div>
+    </div>
 
+</div>
+
+<script>
+(function () {
+    var sidebar = document.getElementById('sidebar');
+    var scrim = document.getElementById('scrim');
+    var menuBtn = document.getElementById('menuBtn');
+    var cModal = document.getElementById('confirmModal');
+    var cTitle = document.getElementById('confirmTitle');
+    var cText = document.getElementById('confirmText');
+    var cOk = document.getElementById('confirmOk');
+    var pendingForm = null;
+
+    function closeConfirm() {
+        cModal.classList.add('is-hidden');
+        pendingForm = null;
+    }
+
+    function setOpen(open) {
+        sidebar.classList.toggle('is-open', open);
+        scrim.hidden = !open;
+        menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        document.body.classList.toggle('nav-open', open);
+    }
+
+    menuBtn.addEventListener('click', function () {
+        setOpen(!sidebar.classList.contains('is-open'));
+    });
+
+    scrim.addEventListener('click', function () { setOpen(false); });
+    document.querySelectorAll('[data-close-nav], .nav-item').forEach(function (el) {
+        el.addEventListener('click', function () { setOpen(false); });
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { setOpen(false); closeConfirm(); }
+    });
+
+    document.addEventListener('submit', function (e) {
+        var form = e.target.closest('form[data-confirm]');
+        if (!form) return;
+
+        e.preventDefault();
+        pendingForm = form;
+
+        cTitle.textContent = form.dataset.confirmTitle || 'Are you sure?';
+        cText.textContent  = form.dataset.confirm;
+        cOk.textContent    = form.dataset.confirmAction || 'Confirm';
+        cOk.className      = 'btn ' + (form.dataset.confirmStyle || 'btn-danger');
+
+        cModal.classList.remove('is-hidden');
+        cOk.focus();
+    });
+
+    cOk.addEventListener('click', function () {
+        if (pendingForm) pendingForm.submit();
+    });
+
+    cModal.addEventListener('click', function (e) {
+        if (e.target === cModal) closeConfirm();
+    });
+    document.querySelectorAll('[data-confirm-cancel]').forEach(function (el) {
+        el.addEventListener('click', closeConfirm);
+    })
+
+    // File picker: show what was chosen, since the native input is hidden.
+    document.querySelectorAll('.drop input[type=file]').forEach(function (input) {
+        var text = input.closest('.drop').querySelector('span');
+        var idle = text.textContent;
+        input.addEventListener('change', function () {
+            var n = input.files.length;
+            text.textContent = n === 0 ? idle
+                : n === 1 ? input.files[0].name
+                : n + ' files selected';
+        });
+    });
+
+})();
+</script>
+</body>
 </html>

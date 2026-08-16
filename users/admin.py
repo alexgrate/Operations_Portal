@@ -1,19 +1,11 @@
-# from django.contrib import admin
-# from .models import Profile
-# from django.contrib.auth.admin import UserAdmin
-# from django.contrib.auth.models import User
-
-
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import PasswordResetForm
 
-from .models import Profile
+from .models import Profile, Team
 
-
-# Register your models here.
 
 
 class EmployeeAddForm(forms.ModelForm):
@@ -25,10 +17,12 @@ class EmployeeAddForm(forms.ModelForm):
         label="Portal role",
     )
 
-    branch = forms.CharField(
-        max_length=100,
+    teams = forms.ModelMultipleChoiceField(
+        queryset=Team.objects.filter(is_active=True),
         required=False,
-        label="Branch",
+        label="Team(s)",
+        help_text="Which team lead reviews this person's work. A staff member may sit in more than one.",
+        widget=forms.CheckboxSelectMultiple,
     )
 
     class Meta:
@@ -39,7 +33,7 @@ class EmployeeAddForm(forms.ModelForm):
             "first_name",
             "last_name",
             "role",
-            "branch",
+            "teams",
         )
 
     def clean_email(self):
@@ -88,7 +82,7 @@ class CustomUserAdmin(UserAdmin):
                     "first_name",
                     "last_name",
                     "role",
-                    "branch",
+                    "teams",
                 ),
             },
         ),
@@ -137,8 +131,8 @@ class CustomUserAdmin(UserAdmin):
 
             profile = obj.profile
             profile.role = form.cleaned_data["role"]
-            profile.branch = form.cleaned_data["branch"]
             profile.save()
+            profile.teams.set(form.cleaned_data["teams"])
 
             reset_form = PasswordResetForm({"email": obj.email})
 
@@ -166,30 +160,30 @@ class CustomUserAdmin(UserAdmin):
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ("user", "role", "branch")
-    list_filter = ("role",)
+    list_display = ["user", "role", "team_names"]
+    list_filter = ["role", "teams"]
+    filter_horizontal = ["teams"]
+    search_fields = ["user__username", "user__email"]
+
+    def team_names(self, obj):
+        return ', '.join(t.name for t in obj.teams.all()) or '-'
+    team_names.short_description = 'Teams'
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ["name", "lead", "member_count", "is_active"]
+    list_filter = ["is_active"]
+    search_fields = ["name"]
+
+    @admin.display(description="Members")
+    def member_count(self, obj):
+        return obj.members.count()
 
 
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
 
-
-
-# @admin.register(Profile)
-# class ProfileAdmin(admin.ModelAdmin):
-#     list_display = ('user', 'role', 'branch')
-#     list_filter = ('role',)
-
-
-# class ProfileInline(admin.StackedInline):
-#     model = Profile
-#     can_delete = False
-#     extra = 0
-
-
-# class CustomUserAdmin(UserAdmin):
-#     inlines = [ProfileInline]
-
-
-# admin.site.unregister(User)
-# admin.site.register(User, CustomUserAdmin)
+admin.site.site_header = "Dash MFB - Operations Portal"
+admin.site.site_title = "Operations Portal admin"
+admin.site.index_title = "Manage teams, staff and processes"

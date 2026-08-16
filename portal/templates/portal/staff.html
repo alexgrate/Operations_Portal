@@ -1,0 +1,118 @@
+{% extends 'portal/base.html' %}
+{% load portal_extras %}
+
+{% block title %}Staff - Dash MFB{% endblock %}
+{% block heading %}Staff{% endblock %}
+
+{% block actions %}
+    <a class="btn btn-primary" href="{% url 'staff-create' %}">
+        <i class="ri-user-add-line"></i> Add staff
+    </a>
+{% endblock %}
+
+{% block content %}
+
+<p class="page-intro">Who is in the department, which teams they sit under, and what they are carrying.</p>
+
+<div class="panel">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Role</th>
+                <th>Teams</th>
+                <th>Status</th>
+                <th class="num">Open work</th>
+                <th><span class="sr-only">Actions</span></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            <tr {% if not r.user.is_active %}class="is-off"{% endif %}>
+                <td data-label="Name">
+                    <div class="person">
+                        <span class="avatar">{{ r.user|initials }}</span>
+                        <span class="person-text">
+                            <span class="person-name">{{ r.user.get_full_name|default:r.user.username }}</span>
+                            <span class="person-mail">{{ r.user.email }}</span>
+                        </span>
+                    </div>
+                </td>
+
+                <td data-label="Role"><span class="dim">{{ r.role }}</span></td>
+
+                <td data-label="Teams">
+                    {% for t in r.teams %}
+                        <span class="tag tag--quiet">{{ t.name }}</span>
+                    {% empty %}
+                        <span class="dim">-</span>
+                    {% endfor %}
+                </td>
+
+                <td data-label="Status">
+                    {% if not r.user.is_active %}
+                        <span class="pill">Deactivated</span>
+                    {% elif not r.user.has_usable_password %}
+                        {% if r.user.profile.invite_sent_at %}
+                            <span class="pill pill--returned">Invite sent</span>
+                        {% else %}
+                            <span class="pill pill--not-started">Not invited</span>
+                        {% endif %}
+                    {% elif r.user.last_login %}
+                        <span class="pill pill--completed">Active</span>
+                    {% else %}
+                        <span class="pill pill--not-started">Never signed in</span>
+                    {% endif %}
+                </td>
+
+                <td data-label="Open work" class="num">
+                    {% if r.overdue %}
+                        <span class="due due--overdue">{{ r.open }} open, {{ r.overdue }} overdue</span>
+                    {% elif r.open %}
+                        <span class="due">{{ r.open }} open</span>
+                    {% else %}
+                        <span class="dim">Clear</span>
+                    {% endif %}
+                </td>
+
+                <td class="acts">
+                    <a class="btn btn-sm" href="{% url 'staff-edit' r.user.id %}">Edit</a>
+
+                    {% if r.user.is_active and not r.user.has_usable_password %}
+                        <form method="post" action="{% url 'staff-resend' r.user.id %}">
+                            {% csrf_token %}
+                            <button class="btn btn-sm {% if not r.user.profile.invite_sent_at %}btn-primary{% endif %}" type="submit">
+                                {% if r.user.profile.invite_sent_at %}Resend invite{% else %}Send invite{% endif %}
+                            </button>
+                        </form>
+                    {% endif %}
+
+                    {% if r.user != user %}
+                        <form method="post" action="{% url 'staff-toggle' r.user.id %}"
+                              data-confirm-title="{% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %} {{ r.user.get_full_name|default:r.user.username }}?"
+                              data-confirm="{% if r.user.is_active %}They will no longer be able to sign in. Their tasks and sign-off history are kept.{% else %}They will be able to sign in again with their existing password.{% endif %}"
+                              data-confirm-action="{% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}"
+                              {% if not r.user.is_active %}data-confirm-style="btn-primary"{% endif %}>
+                            {% csrf_token %}
+                            <button class="btn btn-sm {% if r.user.is_active %}btn-danger{% endif %}" type="submit">
+                                {% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}
+                            </button>
+                        </form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr class="no-rows">
+                <td colspan="6">
+                    <div class="empty">
+                        <p class="empty-title">No staff yet</p>
+                        <p class="empty-sub">Add someone and they will be emailed an invite to set their password.</p>
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% endblock %}
