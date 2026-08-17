@@ -16,9 +16,10 @@ from django.views.decorators.http import require_POST
 
 from users.models import Profile
 
-from . import approvals, queues
+from . import approvals, notify, queues
+from .pagination import paginate
 from .forms import CommentForm, ProcessTypeForm, TaskForm, _apply_target_and_checklist
-from .models import Attachment, ProcessType, Task
+from .models import Approval, Attachment, ProcessType, Task
 
 
 def login_view(request):
@@ -105,11 +106,14 @@ def queue_view(request, key):
         t.deadline or timezone.now() + timedelta(days=3650),
     ))
 
+    page = paginate(request, tasks)
+
     return render(request, 'portal/queue.html', {
         'queue_key': key,
         'queue_label': label,
-        'tasks': tasks,
+        'tasks': page['items'],
         'search': search,
+        **page,
         'selected_process': process,
         'process_types': ProcessType.objects.all(),
         'task_form': TaskForm(user=request.user),
@@ -127,7 +131,10 @@ def task_detail(request, pk, form=None):
 
     return render(request, 'portal/task_detail.html', {
         'task': task,
-        'form': form if form is not None else TaskForm(instance=task, user=request.user),
+        'form': form if form is not None else TaskForm(
+            instance=task, user=request.user,
+            editable=approvals.editable_fields(request.user, task),
+        ),
         'comments': task.comments.select_related('author'),
         'attachments': task.attachments.select_related('uploaded_by'),
         'max_upload_mb': settings.MAX_UPLOAD_BYTES // (1024 * 1024),
@@ -137,7 +144,8 @@ def task_detail(request, pk, form=None):
         'can_review': approvals.can_review(request.user, task),
         'can_authorise': approvals.can_authorise(request.user, task),
         'can_request_auth': approvals.can_request_authorisation(request.user, task),
-        'can_edit': queues.is_management(request.user) or task.assignee_id == request.user.id,
+        'can_edit': approvals.can_edit(request.user, task),
+        'editable': approvals.editable_fields(request.user, task),
         'can_start': approvals.can_start(request.user, task),
     })
 
@@ -179,15 +187,35 @@ def task_create(request):
 @require_POST
 def task_update(request, pk):
     task = get_object_or_404(Task, pk=pk)
-    if not (queues.is_management(request.user) or task.assignee_id == request.user.id):
+
+    editable = approvals.editable_fields(request.user, task)
+    if not editable:
+        if task.approval_stage in Task.IN_REVIEW:
+            messages.error(
+                request,
+                'This task is with a reviewer. Ask them to send it back if it needs changing.',
+            )
+            return redirect('task-detail', pk=pk)
         raise PermissionDenied
 
-    form = TaskForm(request.POST, instance=task, user=request.user)
+    was_process = task.process_type_id
+    form = TaskForm(request.POST, instance=task, user=request.user, editable=editable)
     if not form.is_valid():
         messages.error(request, 'Could not save - check the highlighted fields.')
         return task_detail(request, pk, form=form)
 
-    form.save()
+    task = form.save(commit=False)
+
+    # A different process type means a different target and a different
+    # checklist. Leaving the old ones behind produces a task whose deadline and
+    # checklist disagree with its own rules.
+    if task.process_type_id != was_process:
+        task.checklist_snapshot = list(task.process_type.checklist or [])
+        task.checklist_done = {}
+        task.deadline = task.created_at + timedelta(hours=task.process_type.target_hours)
+        messages.info(request, 'Process type changed, so the deadline and checklist were reset.')
+
+    task.save()
     messages.success(request, 'Task updated.')
     return redirect('task-detail', pk=pk)
 
@@ -323,9 +351,15 @@ def task_submit(request, pk):
         return redirect('task-detail', pk=pk)
 
     if approvals.submit(task) == Task.STAGE_APPROVED:
-        messages.success(request, f'"{task.title}" is complete - this type needs no sign-off.')
+        # Only reachable for the Department Head's own work; there is nobody
+        # above them to sign it off.
+        messages.success(request, f'"{task.title}" is complete.')
     else:
-        messages.success(request, f'"{task.title}" sent for review.')
+        notify.submitted_for_review(task, request.user)
+        messages.success(
+            request,
+            f'"{task.title}" sent for review. It is not complete until it is signed off.',
+        )
     return redirect('portal-home')
 
 
@@ -338,8 +372,13 @@ def task_approve(request, pk):
         messages.error(request, 'You cannot sign this task off at its current stage.')
         return redirect('task-detail', pk=pk)
 
-    stage = approvals.approve(task, request.user, request.POST.get('comment', '').strip())
+    comment = request.POST.get('comment', '').strip()
+    stage = approvals.approve(task, request.user, comment)
+
+    notify.decision_made(task, request.user, Approval.DECISION_APPROVED, comment)
     if stage == Task.STAGE_HEAD_REVIEW:
+        # Handed up a level, so the next reviewer needs telling too.
+        notify.submitted_for_review(task, task.assignee or request.user)
         messages.success(request, f'Approved - "{task.title}" now goes to the Department Head.')
     else:
         messages.success(request, f'"{task.title}" is fully approved.')
@@ -361,6 +400,7 @@ def task_return(request, pk):
         return redirect('task-detail', pk=pk)
 
     approvals.send_back(task, request.user, comment)
+    notify.decision_made(task, request.user, Approval.DECISION_RETURNED, comment)
     messages.success(request, f'Returned to {task.assignee or "the assignee"}.')
     return redirect('queue', key='awaiting')
 
@@ -454,8 +494,11 @@ def comment_create(request, pk):
 
 @login_required
 def catalog_view(request, form=None):
+    page = paginate(request, ProcessType.objects.all())
+
     return render(request, 'portal/catalog.html', {
-        'process_types': ProcessType.objects.all(),
+        'process_types': page['items'],
+        **page,
         'form': form if form is not None else ProcessTypeForm(),
         'can_manage': queues.is_management(request.user),
     })
@@ -527,12 +570,17 @@ def analytics_view(request):
     done = [t for t in tasks if t.completed_at]
     open_tasks = [t for t in tasks if t.is_open]
 
-    avg_hours = None
-    if done:
-        avg_hours = round(
-            sum((t.completed_at - t.created_at).total_seconds() for t in done)
-            / len(done) / 3600, 1,
-        )
+    def mean(values):
+        clean = [v for v in values if v is not None]
+        return round(sum(clean) / len(clean), 1) if clean else None
+
+    # Two clocks, kept apart. One number would hide whether the delay was the
+    # work or the sign-off, which is the whole question.
+    avg_staff_hours = mean([t.staff_hours for t in done])
+    avg_review_hours = mean([t.review_hours for t in done])
+    avg_hours = mean([
+        round((t.completed_at - t.work_started_from).total_seconds() / 3600, 1) for t in done
+    ])
 
     def summarise(key_fn):
         buckets = {}
@@ -542,15 +590,20 @@ def analytics_view(request):
         rows = []
         for name, items in buckets.items():
             finished = [t for t in items if t.completed_at]
-            overdue = sum(1 for t in items if t.urgency == 'overdue')
-            hours = None
-            if finished:
-                hours = round(
-                    sum((t.completed_at - t.created_at).total_seconds() for t in finished)
-                    / len(finished) / 3600, 1,
-                )
-            rows.append({'name': name, 'count': len(items),
-                         'overdue': overdue, 'avg_hours': hours})
+            submitted = [t for t in items if t.submitted_at]
+            rows.append({
+                'name': name,
+                'count': len(items),
+                'overdue': sum(1 for t in items if t.urgency == 'overdue'),
+                'avg_hours': mean([
+                    round((t.completed_at - t.work_started_from).total_seconds() / 3600, 1)
+                    for t in finished
+                ]),
+                'staff_hours': mean([t.staff_hours for t in items]),
+                'review_hours': mean([t.review_hours for t in items]),
+                'late_submissions': sum(1 for t in submitted if t.staff_late),
+                'submitted_count': len(submitted),
+            })
 
         rows.sort(key=lambda r: -r['count'])
         top = rows[0]['count'] if rows else 0
@@ -566,6 +619,9 @@ def analytics_view(request):
         'overdue_count': sum(1 for t in open_tasks if t.urgency == 'overdue'),
         'awaiting_count': sum(1 for t in tasks if t.approval_stage in Task.IN_REVIEW),
         'avg_hours': avg_hours,
+        'avg_staff_hours': avg_staff_hours,
+        'avg_review_hours': avg_review_hours,
+        'in_review_count': sum(1 for t in tasks if t.waiting_on_review),
         'by_process': summarise(lambda t: t.process_type.name),
         'by_staff': summarise(
             lambda t: (t.assignee.get_full_name() or t.assignee.get_username())
@@ -596,4 +652,6 @@ def staff_view(request):
             'overdue': sum(1 for t in open_tasks if t.urgency == 'overdue'),
         })
 
-    return render(request, 'portal/staff.html', {'rows': rows, 'active_tab': 'staff'})
+    page = paginate(request, rows)
+    return render(request, 'portal/staff.html',
+                  {'rows': page['items'], 'active_tab': 'staff', **page})

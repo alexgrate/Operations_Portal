@@ -1,0 +1,1 @@
+{% if is_head_stage %}Needs your sign-off{% else %}Needs your sign-off{% endif %}: {{ task.title }}

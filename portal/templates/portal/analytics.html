@@ -14,8 +14,16 @@
     <div class="stat"><span class="stat-value">{{ overdue_count }}</span><span class="stat-label">Overdue now</span></div>
     <div class="stat"><span class="stat-value">{{ completed_count }}</span><span class="stat-label">Completed</span></div>
     <div class="stat">
+        <span class="stat-value">{% if avg_staff_hours %}{{ avg_staff_hours }}h{% else %}-{% endif %}</span>
+        <span class="stat-label">Avg. time to submit</span>
+    </div>
+    <div class="stat">
+        <span class="stat-value">{% if avg_review_hours %}{{ avg_review_hours }}h{% else %}-{% endif %}</span>
+        <span class="stat-label">Avg. time in review</span>
+    </div>
+    <div class="stat">
         <span class="stat-value">{% if avg_hours %}{{ avg_hours }}h{% else %}-{% endif %}</span>
-        <span class="stat-label">Avg. turnaround</span>
+        <span class="stat-label">Avg. total turnaround</span>
     </div>
 </div>
 
@@ -36,7 +44,8 @@
                     <span class="meter-name">{{ row.name }}</span>
                     <span class="meter-stat">
                         {{ row.count }} task{{ row.count|pluralize }} ·
-                        avg {% if row.avg_hours %}{{ row.avg_hours }}h{% else %}-{% endif %} ·
+                        work {% if row.staff_hours %}{{ row.staff_hours }}h{% else %}-{% endif %} ·
+                        review {% if row.review_hours %}{{ row.review_hours }}h{% else %}-{% endif %} ·
                         {{ row.overdue }} overdue
                     </span>
                 </div>
@@ -64,7 +73,8 @@
                     <span class="meter-name">{{ row.name }}</span>
                     <span class="meter-stat">
                         {{ row.count }} task{{ row.count|pluralize }} ·
-                        avg {% if row.avg_hours %}{{ row.avg_hours }}h{% else %}-{% endif %} ·
+                        work {% if row.staff_hours %}{{ row.staff_hours }}h{% else %}-{% endif %} ·
+                        review {% if row.review_hours %}{{ row.review_hours }}h{% else %}-{% endif %} ·
                         {{ row.overdue }} overdue
                     </span>
                 </div>

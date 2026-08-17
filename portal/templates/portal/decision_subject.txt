@@ -1,0 +1,1 @@
+{% if returned %}Sent back: {{ task.title }}{% elif finished %}Signed off: {{ task.title }}{% else %}Approved, now with the Department Head: {{ task.title }}{% endif %}
