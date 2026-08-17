@@ -317,7 +317,11 @@
                 <dt>Team</dt>
                 <dd>{{ task.team.name|default:"-" }}</dd>
                 <dt>Reviewer</dt>
-                <dd>{{ task.team.lead.get_full_name|default:task.team.lead.username|default:"-" }}</dd>
+                <dd>
+                    {% if task.team.lead %}
+                        {{ task.team.lead.get_full_name|default:task.team.lead.username }}
+                    {% else %}-{% endif %}
+                </dd>
                 <dt>Sign-off needed</dt>
                 <dd>{{ task.process_type.get_approval_level_display }}</dd>
                 <dt>Target</dt>
@@ -328,40 +332,89 @@
                 <dd>{% if task.started_at %}{{ task.started_at|date:"j M Y, H:i" }}{% else %}Not started{% endif %}</dd>
                 <dt>Submitted</dt>
                 <dd>{% if task.submitted_at %}{{ task.submitted_at|date:"j M Y, H:i" }}{% else %}-{% endif %}</dd>
+
+                {% if task.staff_hours is not None %}
+                    <dt>Time to submit</dt>
+                    <dd>
+                        {{ task.staff_hours }}h
+                        {% if task.staff_late %}<span class="due due--overdue">past deadline</span>{% endif %}
+                    </dd>
+                {% endif %}
+                {% if task.review_hours is not None %}
+                    <dt>Time in review</dt>
+                    <dd>{{ task.review_hours }}h</dd>
+                {% endif %}
             </dl>
+
+            {% if task.waiting_on_review %}
+                <p class="hint">
+                    Handed in. The clock from here is the reviewer's, not the
+                    assignee's.
+                </p>
+            {% endif %}
         </div>
 
-        {% if can_edit and task.is_open %}
+        {% if can_edit %}
         <div class="card">
             <h3 class="card-title">Edit</h3>
             <form method="post" action="{% url 'task-update' task.id %}" class="form">
                 {% csrf_token %}
                 {% for error in form.non_field_errors %}<p class="err">{{ error }}</p>{% endfor %}
-                <div class="field">
-                    <label for="{{ form.title.id_for_label }}">Title</label>
-                    {{ form.title }}
-                    {% for error in form.title.errors %}<p class="err">{{ error }}</p>{% endfor %}
-                </div>
-                <div class="field">
-                    <label for="{{ form.process_type.id_for_label }}">Process type</label>
-                    {{ form.process_type }}
-                </div>
-                <div class="field">
-                    <label for="{{ form.team.id_for_label }}">Team</label>
-                    {{ form.team }}
-                    {% for error in form.team.errors %}<p class="err">{{ error }}</p>{% endfor %}
-                </div>
-                <div class="field">
-                    <label for="{{ form.assignee.id_for_label }}">Assignee</label>
-                    {{ form.assignee }}
-                    {% for error in form.assignee.errors %}<p class="err">{{ error }}</p>{% endfor %}
-                </div>
-                <div class="field">
-                    <label for="{{ form.notes.id_for_label }}">Notes</label>
-                    {{ form.notes }}
-                </div>
+
+                {% if 'title' in editable %}
+                    <div class="field">
+                        <label for="{{ form.title.id_for_label }}">Title</label>
+                        {{ form.title }}
+                        {% for error in form.title.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+
+                {% if 'process_type' in editable %}
+                    <div class="field">
+                        <label for="{{ form.process_type.id_for_label }}">Process type</label>
+                        {{ form.process_type }}
+                        {% for error in form.process_type.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                        <p class="hint">
+                            Changing this resets the deadline and the checklist to
+                            the new process. Locked once work has started.
+                        </p>
+                    </div>
+                {% endif %}
+
+                {% if 'team' in editable %}
+                    <div class="field">
+                        <label for="{{ form.team.id_for_label }}">Team</label>
+                        {{ form.team }}
+                        {% for error in form.team.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                        <p class="hint">Decides which lead reviews it.</p>
+                    </div>
+                {% endif %}
+
+                {% if 'assignee' in editable %}
+                    <div class="field">
+                        <label for="{{ form.assignee.id_for_label }}">Assignee</label>
+                        {{ form.assignee }}
+                        {% for error in form.assignee.errors %}<p class="err">{{ error }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+
+                {% if 'notes' in editable %}
+                    <div class="field">
+                        <label for="{{ form.notes.id_for_label }}">Notes</label>
+                        {{ form.notes }}
+                    </div>
+                {% endif %}
+
                 <button class="btn btn-block" type="submit">Save changes</button>
             </form>
+        </div>
+        {% elif task.waiting_on_review %}
+        <div class="card">
+            <h3 class="card-title">Edit</h3>
+            <p class="hint">
+                Handed in and with a reviewer, so it is locked. If something
+                needs changing, ask them to send it back.
+            </p>
         </div>
         {% endif %}
 

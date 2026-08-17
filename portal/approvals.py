@@ -33,14 +33,14 @@ def is_lead_of(user, task):
 # --- What this task needs ---------------------------------------------------
 
 def required_stages(task):
-    """The sign-offs this task needs, in order."""
+    """The sign-offs this task needs, in order. Never empty."""
     level = task.process_type.approval_level
 
-    if level == ProcessType.APPROVAL_LEAD:
-        return [Approval.STAGE_LEAD]
+    if level == ProcessType.APPROVAL_HEAD:
+        return [Approval.STAGE_HEAD]
     if level == ProcessType.APPROVAL_LEAD_HEAD:
         return [Approval.STAGE_LEAD, Approval.STAGE_HEAD]
-    return []
+    return [Approval.STAGE_LEAD]
 
 
 # --- Permission to start ----------------------------------------------------
@@ -160,6 +160,49 @@ def can_submit(user, task):
     )
 
 
+def editable_fields(user, task):
+    """Which parts of a task this person may still change.
+
+    The single source of truth for both the form and the view. Hiding the Edit
+    box in a template is not enforcement: a posted form reaches the view either
+    way.
+
+    Changing a task under the reviewer looking at it is the thing this mostly
+    exists to stop. If it needs changing at that point, the reviewer sends it
+    back and the assignee gets it properly.
+    """
+    if not task.is_open:
+        return set()
+
+    management = _is_management(user)
+
+    if task.approval_stage in Task.IN_REVIEW:
+        # Handed in. A manager may still re-route it; nobody rewrites it.
+        return {'assignee', 'team'} if management else set()
+
+    fields = set()
+    if management or task.assignee_id == user.id:
+        fields |= {'title', 'notes'}
+
+    if management:
+        fields |= {'assignee', 'team'}
+        # The process type sets the deadline, the checklist and who signs off.
+        # Once work has started all three are in flight, so it stops moving.
+        if not task.started_at:
+            fields.add('process_type')
+
+    return fields
+
+
+def can_edit(user, task):
+    return bool(editable_fields(user, task))
+
+
+def _is_management(user):
+    from .queues import is_management
+    return is_management(user)
+
+
 def can_review(user, task):
     """May this person approve or send back the task at its current stage?"""
     if task.approval_stage == Task.STAGE_LEAD_REVIEW:
@@ -169,20 +212,42 @@ def can_review(user, task):
     return False
 
 
+def effective_stages(task):
+    """The sign-offs this task actually needs.
+
+    Any stage the assignee would be signing off for themselves is dropped, so
+    a Team Lead's own work goes up to the Department Head rather than closing
+    on their own say-so. The Head has nobody above them, which is why their
+    own work is the one case that ends up with nothing left to do.
+    """
+    lead_id = task.team.lead_id if task.team_id else None
+    return [
+        stage for stage in required_stages(task)
+        if not (stage == Approval.STAGE_LEAD and task.assignee_id == lead_id)
+        and not (stage == Approval.STAGE_HEAD and _is_head(task.assignee))
+    ]
+
+
+def _is_head(user):
+    return bool(user and is_dept_head(user))
+
+
 def stage_on_submit(task):
     """Where a task lands the moment it is submitted."""
-    stages = required_stages(task)
+    remaining = effective_stages(task)
 
-    if not stages:
+    if Approval.STAGE_LEAD in remaining:
+        return Task.STAGE_LEAD_REVIEW
+    if Approval.STAGE_HEAD in remaining:
+        return Task.STAGE_HEAD_REVIEW
+
+    # Every stage this task needed was one the assignee would have been
+    # signing for themselves. A Team Lead still answers to the Department
+    # Head, so their work goes up rather than closing. The Head answers to
+    # nobody inside this system, which is the only case that closes on submit.
+    if _is_head(task.assignee):
         return Task.STAGE_APPROVED
-
-    lead_id = task.team.lead_id if task.team_id else None
-
-    if stages[0] == Approval.STAGE_LEAD and task.assignee_id == lead_id:
-        remaining = stages[1:]
-        return Task.STAGE_HEAD_REVIEW if remaining else Task.STAGE_APPROVED
-
-    return Task.STAGE_LEAD_REVIEW
+    return Task.STAGE_HEAD_REVIEW
 
 
 def _current_stage_name(task):
@@ -222,7 +287,7 @@ def approve(task, actor, comment=''):
         decision=Approval.DECISION_APPROVED, comment=comment,
     )
 
-    if stage == Approval.STAGE_LEAD and Approval.STAGE_HEAD in required_stages(task):
+    if stage == Approval.STAGE_LEAD and Approval.STAGE_HEAD in effective_stages(task):
         task.approval_stage = Task.STAGE_HEAD_REVIEW
     else:
         _mark_approved(task)

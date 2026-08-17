@@ -251,6 +251,9 @@ APPROVAL_DIGEST_EVERY_MINUTES = int(os.environ.get('APPROVAL_DIGEST_EVERY_MINUTE
 INVITE_LINK_TIMEOUT = 7 * 24 * 60 * 60
 
 
+# Rows per page on every list. Small enough that a queue stays scannable.
+PAGE_SIZE = int(os.environ.get('PAGE_SIZE', '25'))
+
 SESSION_COOKIE_AGE = 15 * 60
 SESSION_SAVE_EVERY_REQUEST = True
 
@@ -336,7 +339,7 @@ STATIC_URL = 'static/'
 
 # Appended to the stylesheet link so a changed CSS file is never served from
 # the browser cache. Bump when you edit the CSS.
-ASSET_VERSION = '11'
+ASSET_VERSION = '14'
 
 # Where `manage.py collectstatic` writes to. Required before deploying -
 # with DEBUG off, Django does not serve static files itself.

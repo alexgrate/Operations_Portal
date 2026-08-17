@@ -30,7 +30,7 @@ class TaskForm(forms.ModelForm):
             }),
         }
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, editable=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         self.fields['team'].required = True
@@ -38,6 +38,14 @@ class TaskForm(forms.ModelForm):
         self.fields['assignee'].queryset = User.objects.filter(is_active=True).order_by(
             'first_name', 'username',
         )
+
+        # Locked fields are disabled rather than removed. Django ignores posted
+        # data for a disabled field and keeps the initial value, so a crafted
+        # POST cannot change what the page would not let you change.
+        if editable is not None:
+            for name, field in self.fields.items():
+                if name not in editable:
+                    field.disabled = True
 
         self.fields['team'].queryset = Team.objects.filter(is_active=True)
 

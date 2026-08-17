@@ -13,17 +13,20 @@ class ProcessType(models.Model):
     target_hours = models.FloatField()
     checklist = models.JSONField(default=list, blank=True)
 
-    APPROVAL_NONE = 'none'
+    # Every process needs a sign-off. There is deliberately no "none" option:
+    # nobody closes their own work, because a deadline is a standing incentive
+    # to mark something finished that is not.
     APPROVAL_LEAD = 'lead'
+    APPROVAL_HEAD = 'head'
     APPROVAL_LEAD_HEAD = 'lead_head'
     APPROVAL_CHOICES = [
-        (APPROVAL_NONE, 'No approval needed'),
         (APPROVAL_LEAD, 'Team Lead only'),
+        (APPROVAL_HEAD, 'Department Head only'),
         (APPROVAL_LEAD_HEAD, 'Team Lead, then Department Head'),
     ]
 
     approval_level = models.CharField(
-        max_length=20, choices=APPROVAL_CHOICES, default=APPROVAL_NONE,
+        max_length=20, choices=APPROVAL_CHOICES, default=APPROVAL_LEAD,
     )
 
     requires_authorisation = models.BooleanField(
@@ -203,9 +206,59 @@ class Task(models.Model):
 
     @property
     def finished_late(self):
+        """Late overall. Includes any time the task spent waiting on a reviewer,
+        so do not use this to judge the person who did the work: see staff_late.
+        """
         return bool(
             self.completed_at and self.deadline and self.completed_at > self.deadline
         )
+
+    # --- the two clocks -----------------------------------------------------
+    #
+    # A task's turnaround is two separate obligations: getting the work done
+    # and handed in, then getting it signed off. Rolling them into one number
+    # blames whoever was assigned for however long their manager sat on it.
+
+    @property
+    def work_started_from(self):
+        """When the assignee's clock starts.
+
+        For work that needed permission this is the moment it was granted, not
+        when it was raised. Nobody should be marked down for a wait they were
+        not allowed to act during.
+        """
+        return self.authorised_at or self.created_at
+
+    @property
+    def staff_hours(self):
+        """Hours the assignee held it, from being able to start to handing in."""
+        if not self.submitted_at:
+            return None
+        seconds = (self.submitted_at - self.work_started_from).total_seconds()
+        return round(max(0, seconds) / 3600, 1)
+
+    @property
+    def review_hours(self):
+        """Hours it then sat with reviewers, from handing in to final sign-off."""
+        if not (self.submitted_at and self.completed_at):
+            return None
+        seconds = (self.completed_at - self.submitted_at).total_seconds()
+        return round(max(0, seconds) / 3600, 1)
+
+    @property
+    def staff_late(self):
+        """Did the assignee miss the deadline by the time they handed it in?
+
+        This is the fair measure of the person doing the work.
+        """
+        return bool(
+            self.submitted_at and self.deadline and self.submitted_at > self.deadline
+        )
+
+    @property
+    def waiting_on_review(self):
+        """Handed in and not yet decided, so the delay is now the reviewer's."""
+        return self.approval_stage in self.IN_REVIEW
 
     @property
     def checklist(self):

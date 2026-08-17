@@ -1,10 +1,11 @@
 # Dash MFB - Operations Portal
 
-A Django app for logging, tracking, and managing operational tasks across the
-team: a task board, a process catalog, and turnaround analytics.
+Internal work tracking for the Operations department. Staff raise pieces of
+work, do them against a fixed checklist, and hand them up for sign-off.
+Managers see what is waiting on them and what is running late.
 
-> **Status:** authentication is complete and working. The dashboard is still a
-> front-end shell - see [Current state](#current-state) before you start.
+> **Status:** feature complete for internal testing. Not yet ready for real
+> customer data - see [Before deploying](#before-deploying).
 
 ---
 
@@ -13,7 +14,8 @@ team: a task board, a process catalog, and turnaround analytics.
 - **Python 3.10+** (developed on 3.14)
 - pip
 
-Nothing else - the database is SQLite and needs no separate server.
+Nothing else for local work: the database is SQLite and needs no server.
+Production needs Postgres and a cron daemon.
 
 ---
 
@@ -30,22 +32,95 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 3. Create your local config
-cp .env.example .env               # then edit it - see "Configuration" below
+cp .env.example .env               # then edit it, see "Configuration" below
 
-# 4. Set up the database
+# 4. Build the database
 python manage.py migrate
 
-# 5. Create an admin account
+# 5. Create the first account (it is given the Admin role automatically)
 python manage.py createsuperuser
 
 # 6. Run it
 python manage.py runserver
 ```
 
-Open **http://127.0.0.1:8000/**.
+Open **http://127.0.0.1:8000/** and sign in with the **email address** you gave
+to `createsuperuser`. Usernames are deliberately not accepted at the login form.
 
-`db.sqlite3` is gitignored, so a fresh clone starts with an empty database -
-step 4 and step 5 are not optional.
+`db.sqlite3` is gitignored, so a fresh clone starts empty: steps 4 and 5 are
+not optional.
+
+### Then set the department up, in this order
+
+There is a dependency chain. A team needs a lead, and only someone already
+holding a leadership role can be picked as one, but the staff form offers teams
+as tick-boxes, which is no use before any team exists.
+
+1. **Onboard the managers** at `/app/staff/new/`, leaving teams empty
+2. **Create the teams** at `/app/teams/` - the lead is added to their own team
+   automatically, which matters because a task's assignee has to belong to the
+   team it is raised under
+3. **Onboard everyone else**, ticking their teams as you go
+4. **Build the process catalog** at `/app/catalog/new/` - nothing can be raised
+   until at least one process type exists
+
+---
+
+## How the work flows
+
+```
+raised → [permission?] → started → checklist ticked → submitted
+       → [Team Lead] → [Department Head] → completed
+```
+
+The bracketed steps come from the process type. A reviewer can send anything
+back with a reason, which returns it to the assignee with the history intact.
+
+### Roles
+
+| Role | Can |
+| --- | --- |
+| Operations Staff | Raise and do work, hand it to another team |
+| Team Lead | The above, plus sign off their team's work, onboard staff, manage teams and the catalog |
+| Department Head | The above across every team, plus final sign-off |
+| Admin | Everything, plus the Django admin |
+
+### Two rules worth knowing before you change anything
+
+**Nobody closes their own work.** There is no "no approval needed" option on a
+process type. A deadline is a standing incentive to mark something finished
+that is not, so every task needs a sign-off from somebody else. A Team Lead's
+own task escalates to the Department Head rather than closing. The Head is the
+single exception, because nobody sits above them here.
+
+**Nothing is ever deleted.** Tasks are archived, teams and staff are retired.
+`Task.team` and `Task.process_type` are `PROTECT` precisely so the record of
+who approved what cannot be erased by tidying up.
+
+### The process catalog
+
+Each entry fixes four things so the person doing the work does not decide them:
+the turnaround target, the standard checklist, who signs it off, and whether
+permission is needed before work starts.
+
+The checklist is **copied onto each task when it is raised and frozen there**.
+Editing a process later never shifts ticks under somebody mid-job.
+
+`Ad hoc request` exists as the escape hatch for one-off work that fits no
+other entry. If it becomes the most-used type, that is the catalog telling you
+something real is missing - the task titles inside it will say what.
+
+### The two clocks
+
+Turnaround is measured as two separate obligations, not one number:
+
+- **Time to submit** - from when work could actually start to handing in. A
+  wait for permission is not counted against the assignee.
+- **Time in review** - from handing in to final sign-off.
+
+`staff_late` judges the person who did the work; `finished_late` is the overall
+figure. Rolling them together blames whoever was assigned for however long
+their manager sat on it.
 
 ---
 
@@ -54,64 +129,64 @@ step 4 and step 5 are not optional.
 All secrets live in `.env`, which is gitignored. `.env.example` is the
 committed template; copy it and fill in real values.
 
-| Variable | Required | What it does |
-| --- | --- | --- |
-| `DJANGO_SECRET_KEY` | **production** | App refuses to boot with `DEBUG=False` and no key |
-| `DJANGO_DEBUG` | no | `True` / `False`, defaults to `True` |
-| `DJANGO_ALLOWED_HOSTS` | **production** | Comma-separated hostnames Django will answer for |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | **HTTPS** | Full origins, e.g. `https://portal.dash-mfb.com` |
-| `DJANGO_TIME_ZONE` | no | Display timezone; set `Africa/Lagos` for local times |
-| `DJANGO_USE_PROXY_SSL_HEADER` | behind a proxy | Without it, the SSL redirect loops forever |
-| `DJANGO_SECURE_HSTS_SECONDS` | no | Start at `3600`, raise once HTTPS is proven |
-| `DJANGO_SECURE_SSL_REDIRECT` / `..._SESSION_COOKIE_SECURE` / `..._CSRF_COOKIE_SECURE` | no | Default to **on** whenever `DEBUG` is off |
-| `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | **production** | Defaults to local SQLite; move to Postgres |
-| `MS_GRAPH_TENANT_ID` | for real email | Azure AD tenant ID |
-| `MS_GRAPH_CLIENT_ID` | for real email | App registration (client) ID |
-| `MS_GRAPH_CLIENT_SECRET` | for real email | App registration client secret |
-| `MS_GRAPH_SENDER` | for real email | Mailbox that sends, e.g. `robot@dash-mfb.com` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional | Blank hides the "Continue with Google" button |
+### Required in production
 
-`.env.example` documents all of these with inline guidance.
+| Variable | What it does |
+| --- | --- |
+| `DJANGO_SECRET_KEY` | App refuses to boot with `DEBUG=False` and no key |
+| `DJANGO_ALLOWED_HOSTS` | Comma-separated hostnames Django will answer for |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | Full origins, e.g. `https://portal.dash-mfb.com` |
+| `SITE_URL` | **Every link in every email is built from this.** Cron has no request to derive it from, so leaving the default points all of them at localhost |
+| `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | Defaults to local SQLite; move to Postgres |
 
-### Google sign-in
+### Email, through Microsoft Graph
 
-Optional. Create an OAuth 2.0 Client ID (Web application) in the Google Cloud
-console with the redirect URI
-`https://<your-host>/accounts/google/login/callback/`, then set
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Credentials are read from the
-environment, so no `django.contrib.sites` row and nothing secret in the
-database. Only `@dash-mfb.com` Google accounts are accepted - enforced in
-[`portal/adapters.py`](portal/adapters.py).
+| Variable | What it does |
+| --- | --- |
+| `MS_GRAPH_TENANT_ID` | Azure AD tenant ID |
+| `MS_GRAPH_CLIENT_ID` | App registration (client) ID |
+| `MS_GRAPH_CLIENT_SECRET` | App registration client secret |
+| `MS_GRAPH_SENDER` | Mailbox that sends, e.g. `robot@dash-mfb.com` |
 
-**Leave the two variables blank and the button is hidden entirely** - it is
-not shown in a broken state.
-
-### Approvals
-
-A process type can be marked **"Needs approval"** in the catalog. Tasks of
-that type do not complete when they reach a "Completes" column - they park in
-**Awaiting approval** until an approver signs them off, and only then get a
-`completed_at`.
-
-Approvers are Django staff/superusers, plus anyone in an **`Admin`** or
-**`Team Lead`** group (create the groups in `/admin/`). Re-opening an approved
-task clears the sign-off, so it has to be approved again.
-
-### Email
-
-Password-reset email goes out through the **Microsoft Graph API**, not SMTP -
 Office 365 tenants normally have SMTP AUTH disabled, so Django's SMTP backend
-can't authenticate. The implementation is in
-[`users/email_backends.py`](users/email_backends.py).
+cannot authenticate. The Graph implementation is in
+[`users/email_backends.py`](users/email_backends.py). The app registration
+needs the **`Mail.Send` _application_ permission** (not the delegated one) with
+**admin consent granted**, and the sender must be a real mailbox.
 
-The Azure app registration needs the **`Mail.Send` _application_ permission**
-(not the delegated one) with **admin consent granted**, and `MS_GRAPH_SENDER`
-must be a real mailbox in the tenant.
+**Leave these blank and emails print to the `runserver` terminal instead.**
+That is the right setup for development: invite links and reminders still work,
+copied out of the console, and nothing real is sent by accident.
 
-**If you leave the `MS_GRAPH_*` variables blank**, the app falls back to
-printing emails to the terminal running `runserver`. Password reset still works
-locally - copy the link out of the console output. That is the recommended
-setup for development, so you never send real mail by accident.
+### Reminders and digests
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `REMINDERS_ENABLED` | `True` | Master switch for chasing assignees |
+| `REMINDER_MODE` | `milestones` | `milestones` scales to each task's own deadline; `interval` is a fixed clock |
+| `REMINDER_MILESTONES` | `50,80` | Percentages of the way to the deadline at which to email |
+| `REMINDER_FINAL_MINUTES` | `15` | The one-off last call |
+| `REMINDER_OVERDUE_EVERY_MINUTES` | `1440` | Late work is chased daily, not hourly |
+| `REMINDER_HOURS` | `8-18` | Routine reminders are held outside these hours; `0-0` disables the quiet period |
+| `REMINDER_EVERY_MINUTES` / `REMINDER_MAX_PER_TASK` | `30` / `8` | `interval` mode only |
+| `APPROVAL_DIGESTS_ENABLED` | `True` | Master switch for telling managers what is waiting |
+| `APPROVAL_DIGEST_MIN_GAP_MINUTES` | `60` | Shortest gap between two digests to one person |
+| `APPROVAL_DIGEST_EVERY_MINUTES` | `240` | How often to repeat while work is still unactioned |
+
+### Everything else
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `DJANGO_DEBUG` | `True` | Turn off in production |
+| `DJANGO_TIME_ZONE` | `Africa/Lagos` | Display timezone; storage is always UTC |
+| `PAGE_SIZE` | `25` | Rows per page on every list |
+| `MAX_UPLOAD_MB` | `10` | Largest single attachment. **nginx caps bodies at 1 MB by default**, so raise `client_max_body_size` to match |
+| `DJANGO_USE_PROXY_SSL_HEADER` | `False` | Required behind a load balancer, or the SSL redirect loops forever |
+| `DJANGO_SECURE_HSTS_SECONDS` | `0` | Start at `3600`, raise once HTTPS is proven on every subdomain |
+| `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS` | `False` | Only once every subdomain is HTTPS. Hard to undo |
+| `DJANGO_SECURE_HSTS_PRELOAD` | `False` | Submitting to the browser preload list is close to permanent |
+| `DB_CONN_MAX_AGE` | `60` | Seconds a Postgres connection is reused. Ignored on SQLite |
+| `DJANGO_SECURE_SSL_REDIRECT`, `DJANGO_SESSION_COOKIE_SECURE`, `DJANGO_CSRF_COOKIE_SECURE` | on when `DEBUG` is off | Overrides, e.g. while TLS is still being set up |
 
 ---
 
@@ -119,31 +194,42 @@ setup for development, so you never send real mail by accident.
 
 | URL | Purpose |
 | --- | --- |
-| `/` | Log in |
-| `/register/` | Create an account |
-| `/forgot-password/` | Request a password-reset link |
-| `/forgot-password/sent/` | "Check your email" confirmation |
+| `/` | Sign in (email only) |
+| `/forgot-password/` | Request a reset link |
 | `/reset/<uidb64>/<token>/` | Choose a new password |
-| `/reset/done/` | Reset complete |
-| `/dashboard/` | Task board, process catalog, analytics (login required) |
-| `/logout/` | Log out (POST only) |
+| `/invite/<uidb64>/<token>/` | New starter sets their first password |
+| `/app/` | Lands on whichever queue most likely needs you |
+| `/app/q/<key>/` | A work queue: `my-work`, `authorise`, `awaiting`, `submitted`, `team`, `completed`, `archived` |
+| `/app/tasks/<id>/` | One task: checklist, files, comments, sign-off trail |
+| `/app/catalog/` | Process catalog, editable by management |
+| `/app/staff/` | Onboard, edit, resend invite, deactivate |
+| `/app/teams/` | Create, edit, retire teams |
+| `/app/analytics/` | Turnaround and volume, split by the two clocks |
+| `/app/files/<id>/` | Attachment download, permission-checked |
 | `/admin/` | Django admin |
 
 ### Accounts
 
-People sign in with their **corporate email**. On registration the email is
-stored as both `User.email` and `User.username`.
+People sign in with their **corporate email address only**. Anything not
+ending `@dash-mfb.com` is rejected, enforced by a `pre_save` signal in
+[`users/models.py`](users/models.py) so it holds on every path including
+`createsuperuser`.
 
-A custom backend
-([`users/backends.py`](users/backends.py)) accepts **either** an email or a
-username, so accounts created before this convention - and anything made with
-`createsuperuser` - can still sign in.
+Staff never receive a password. An admin onboards them and the portal emails a
+single-use invite link, valid for 7 days, which they use to set their own.
 
-Sessions expire after **15 minutes of inactivity**
-(`SESSION_COOKIE_AGE` + `SESSION_SAVE_EVERY_REQUEST`).
+Sessions expire after **15 minutes** of inactivity. Reset links last 3 hours.
 
-Password-reset links are single-use and expire after **3 hours**
-(`PASSWORD_RESET_TIMEOUT`).
+### Attachments
+
+Multiple images or documents per task, up to `MAX_UPLOAD_MB` each. Stored under
+a random filename with the original kept on the row, so nothing can be found by
+guessing a URL.
+
+**There is deliberately no `MEDIA_URL` and nothing serves the upload directory.**
+Every download goes through `portal.views.attachment_download`, which checks who
+is asking. Adding `static()`/`MEDIA_URL` serving for that path would put
+customer documents on the open internet.
 
 ---
 
@@ -151,39 +237,57 @@ Password-reset links are single-use and expire after **3 hours**
 
 ```
 Operations_Portal/
-├── Operations_Portal/     # project settings and root URLconf
-├── portal/                # login/logout, dashboard, shared static files
-│   ├── static/css/        # login.css, dashboard.css, register.css (empty)
-│   ├── static/images/     # logos
-│   └── templates/portal/  # base.html, dashboard.html
-├── users/                 # registration, auth backend, Graph email backend
-│   └── templates/users/   # base2.html, login, register, password-reset pages
-├── .env                   # secrets - gitignored, create from .env.example
+├── Operations_Portal/          # settings and root URLconf
+├── portal/
+│   ├── models.py               # ProcessType, Task, Approval, Attachment, Comment
+│   ├── queues.py               # the sidebar queues, and who may see what
+│   ├── approvals.py            # every sign-off and permission rule
+│   ├── reminders.py            # who to chase about a deadline, and when
+│   ├── digests.py              # what is waiting on each manager
+│   ├── notify.py               # the immediate emails, none of which can raise
+│   ├── pagination.py           # one pager, used by every list view
+│   ├── management/commands/    # send_task_reminders, send_approval_digests
+│   ├── static/css/portal.css   # the whole design system
+│   ├── static/vendor/          # Remix Icon, subset and vendored
+│   └── templates/portal/
+├── users/
+│   ├── models.py               # Team, Profile, the corporate-email signal
+│   ├── backends.py             # email-only login
+│   ├── email_backends.py       # Microsoft Graph
+│   └── templates/users/        # login, invite, password reset
+├── .env                        # gitignored, create from .env.example
 └── manage.py
 ```
 
-Both apps' CSS lives in `portal/static/`; the auth pages share `login.css`
-through `users/templates/users/base2.html`.
+Business rules live in `queues.py`, `approvals.py`, `reminders.py` and
+`digests.py`, kept apart from the views so they can be tested without HTTP or a
+mail server.
 
 ---
 
-## Current state
+## Icons
 
-**Working:** registration with validation, login by email or username, logout,
-login-required dashboard, the full password-reset flow, and flash messages on
-every auth page.
+Remix Icon is vendored in `portal/static/vendor/remixicon/`, subset to only the
+icons this app uses: 2.5 KB of font instead of 185 KB, and no external request.
 
-**Not built yet:**
+It used to load from a CDN. On any network that blocks external hosts, which
+is most corporate ones, every icon in the portal disappeared.
 
-- **The dashboard is an empty shell.** `portal/templates/portal/dashboard.html`
-  is driven entirely by JavaScript that fills `#boardColumns`, `#catalogList`,
-  `#statGrid`, `#byProcessTable`, and `#byStaffTable`. That JavaScript does not
-  exist, so the board, catalog, and analytics tabs render empty. The tab
-  switcher and modals are also inert.
-- **No models.** `portal/models.py` is empty - there is no Task, ProcessType, or
-  Column model, and nothing persists.
-- **"Continue with Google"** on the login page is decorative; there is no OAuth.
-- `portal/static/css/register.css` is an empty file and is not loaded.
+To add one, reference it in a template or in Python, then regenerate:
+
+```bash
+pip install fonttools brotli
+curl -o /tmp/ri.css   https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.css
+curl -o /tmp/ri.woff2 https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixicon.woff2
+# look up the codepoint for the new class in /tmp/ri.css, add it to the
+# --unicodes list, rerun pyftsubset, then add the rule to remixicon.css
+```
+
+**Scan `.py` as well as `.html`.** The sidebar builds its icon list in
+`portal/queues.py`, so a subset generated from templates alone silently drops
+seven icons and the whole Work section loses them.
+
+Bump `ASSET_VERSION` after any change, or browsers keep the old font.
 
 ---
 

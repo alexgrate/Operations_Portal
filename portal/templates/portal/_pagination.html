@@ -1,0 +1,25 @@
+{% if is_paginated %}
+<nav class="pager" aria-label="Pages">
+    <p class="pager-count">
+        {{ page.start_index }} to {{ page.end_index }} of {{ paginator.count }}
+    </p>
+
+    <div class="pager-links">
+        {% if page.has_previous %}
+            <a class="btn btn-sm" href="?page={{ page.previous_page_number }}{{ querystring }}"
+               rel="prev">Previous</a>
+        {% else %}
+            <span class="btn btn-sm is-off" aria-disabled="true">Previous</span>
+        {% endif %}
+
+        <span class="pager-at">Page {{ page.number }} of {{ paginator.num_pages }}</span>
+
+        {% if page.has_next %}
+            <a class="btn btn-sm" href="?page={{ page.next_page_number }}{{ querystring }}"
+               rel="next">Next</a>
+        {% else %}
+            <span class="btn btn-sm is-off" aria-disabled="true">Next</span>
+        {% endif %}
+    </div>
+</nav>
+{% endif %}

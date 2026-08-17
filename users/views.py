@@ -12,6 +12,7 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.views.decorators.http import require_POST
 
+from portal.pagination import paginate
 from portal.views import management_required
 
 from .forms import StaffForm, TeamForm
@@ -168,7 +169,9 @@ def team_list(request):
             'overdue': sum(1 for t in open_tasks if t.urgency == 'overdue'),
         })
 
-    return render(request, 'portal/teams.html', {'rows': rows, 'active_tab': 'teams'})
+    page = paginate(request, rows)
+    return render(request, 'portal/teams.html',
+                  {'rows': page['items'], 'active_tab': 'teams', **page})
 
 
 @login_required

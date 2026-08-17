@@ -1,0 +1,57 @@
+/* Remix Icon 4.9.0, subset to the 27 icons this portal uses.
+   https://remixicon.com  Apache-2.0
+
+   Vendored deliberately. Loaded from a CDN, every icon in the app vanished on
+   any network blocking external hosts, which is most corporate ones.
+
+   To add an icon: reference it, then regenerate. The generator scans .html
+   AND .py, because the sidebar builds its icon list in portal/queues.py -
+   scanning templates alone silently drops those. See README. */
+
+@font-face{
+    font-family: "remixicon";
+    src: url("remixicon.subset.woff2") format("woff2");
+    font-display: block;
+    font-weight: normal;
+    font-style: normal;
+}
+
+[class^="ri-"], [class*=" ri-"]{
+    font-family: "remixicon" !important;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+    speak: never;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.ri-add-line:before{content:"\ea13"}
+.ri-archive-line:before{content:"\ea48"}
+.ri-arrow-left-line:before{content:"\ea60"}
+.ri-bar-chart-line:before{content:"\ea9e"}
+.ri-book-2-line:before{content:"\ead3"}
+.ri-check-line:before{content:"\eb7b"}
+.ri-checkbox-circle-line:before{content:"\eb81"}
+.ri-close-line:before{content:"\eb99"}
+.ri-delete-bin-line:before{content:"\ec2a"}
+.ri-eye-line:before{content:"\ecb5"}
+.ri-eye-off-line:before{content:"\ecb7"}
+.ri-file-3-line:before{content:"\ecc5"}
+.ri-group-line:before{content:"\ede3"}
+.ri-inbox-line:before{content:"\ee4f"}
+.ri-lock-2-line:before{content:"\eecc"}
+.ri-lock-unlock-line:before{content:"\eed2"}
+.ri-logout-box-r-line:before{content:"\eeda"}
+.ri-mail-line:before{content:"\eef6"}
+.ri-mail-send-line:before{content:"\eefc"}
+.ri-menu-line:before{content:"\ef3e"}
+.ri-organization-chart:before{content:"\efb8"}
+.ri-send-plane-line:before{content:"\f0da"}
+.ri-settings-3-line:before{content:"\f0e6"}
+.ri-shield-check-line:before{content:"\f100"}
+.ri-team-line:before{content:"\f1ee"}
+.ri-upload-2-line:before{content:"\f24a"}
+.ri-user-add-line:before{content:"\f25e"}
