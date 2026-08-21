@@ -1,23 +1,35 @@
-{% autoescape off %}Hello,
+{% extends "email/base.html" %}
 
-{{ submitter.get_full_name|default:submitter.get_username }} has handed this task in.
-It is waiting on {% if is_head_stage %}your approval as Department Head{% else %}your sign-off{% endif %}.
+{% block preheader %}{{ submitter.get_full_name|default:submitter.get_username }} handed in {{ task.title }}. Nothing is finished until you decide.{% endblock %}
+{% block title %}Waiting on your sign-off{% endblock %}
+{% block intro %}
+  <strong style="color:#1d1720;">{{ submitter.get_full_name|default:submitter.get_username }}</strong>
+  has handed this task in. It needs
+  {% if is_head_stage %}your approval as Department Head{% else %}your sign-off{% endif %}
+  before it counts as finished.
+{% endblock %}
 
-  {{ task.title }}
-  Process: {{ task.process_type.name }}{% if task.team %}
-  Team: {{ task.team.name }}{% endif %}
-  Deadline: {{ task.deadline|date:"j M Y, H:i" }}{% if task.staff_hours %}
-  Time taken: {{ task.staff_hours }} hours{% if task.staff_late %} (past the deadline){% endif %}{% endif %}{% if task.checklist_total %}
-  Checklist: all {{ task.checklist_total }} items ticked{% endif %}
+{% block facts %}
+  {% include "email/_fact.html" with label="Task" value=task.title strong=True %}
+  {% include "email/_fact.html" with label="Process" value=task.process_type.name %}
+  {% if task.team %}{% include "email/_fact.html" with label="Team" value=task.team.name %}{% endif %}
+  {% include "email/_fact.html" with label="Deadline" value=task.deadline|date:"j M Y, H:i" %}
+  {% if task.staff_hours is not None %}
+    {% if task.staff_late %}
+      {% include "email/_fact.html" with label="Time taken" value=task.staff_hours|stringformat:"s"|add:" hours, past the deadline" tone="#b3261e" strong=True %}
+    {% else %}
+      {% include "email/_fact.html" with label="Time taken" value=task.staff_hours|stringformat:"s"|add:" hours" %}
+    {% endif %}
+  {% endif %}
+  {% if task.checklist_total %}
+    {% include "email/_fact.html" with label="Checklist" value="all "|add:task.checklist_total|stringformat:"s"|add:" items ticked" tone="#146c38" %}
+  {% endif %}
+{% endblock %}
 
-Approve it or send it back with a reason here:
+{% block body %}
+  {% include "email/_note.html" with text="Nothing is finished until you decide. The task stays open, and its turnaround keeps counting, while it sits with you." %}
+{% endblock %}
 
-{{ url }}
-
-Nothing is finished until you decide. The task stays open, and its turnaround
-keeps counting, while it sits with you.
-
---
-Dash MFB Operations Portal
-This is an automated message; please don't reply to it.
-{% endautoescape %}
+{% block cta_url %}{{ url }}{% endblock %}
+{% block cta_url_plain %}{{ url }}{% endblock %}
+{% block cta_label %}Approve or send it back{% endblock %}

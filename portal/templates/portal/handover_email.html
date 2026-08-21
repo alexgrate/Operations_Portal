@@ -1,0 +1,29 @@
+{% extends "email/base.html" %}
+
+{% block preheader %}{{ actor.get_full_name|default:actor.get_username }} sent {{ task.title }} to {{ task.team.name }}. It has no owner yet.{% endblock %}
+{% block title %}Work has arrived for your team{% endblock %}
+{% block intro %}
+  Hello {{ task.team.lead.get_full_name|default:task.team.lead.get_username }},
+  <strong style="color:#1d1720;">{{ actor.get_full_name|default:actor.get_username }}</strong>
+  has sent this to <strong style="color:#1d1720;">{{ task.team.name }}</strong>.
+  Nobody is doing it yet: you decide who picks it up.
+{% endblock %}
+
+{% block facts %}
+  {% include "email/_fact.html" with label="Task" value=task.title strong=True %}
+  {% include "email/_fact.html" with label="Process" value=task.process_type.name %}
+  {% include "email/_fact.html" with label="Sent by" value=actor.get_full_name|default:actor.get_username %}
+  {% include "email/_fact.html" with label="Deadline" value=task.deadline|date:"j M Y, H:i" strong=True %}
+  {% include "email/_fact.html" with label="Owner" value="Nobody yet" tone="#8a5a00" strong=True %}
+{% endblock %}
+
+{% block body %}
+  {% if task.notes %}
+    {% include "email/_note.html" with label="Notes from "|add:actor.get_full_name text=task.notes %}
+  {% endif %}
+  {% include "email/_note.html" with label="The clock is already running" text="The deadline above was set when the task was raised, so this does not wait for anybody. It is in your My team queue until you give it an owner." bg="#fdf3e2" accent="#8a5a00" %}
+{% endblock %}
+
+{% block cta_url %}{{ url }}{% endblock %}
+{% block cta_url_plain %}{{ url }}{% endblock %}
+{% block cta_label %}Assign somebody{% endblock %}

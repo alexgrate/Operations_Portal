@@ -69,7 +69,7 @@ as tick-boxes, which is no use before any team exists.
 ## How the work flows
 
 ```
-raised → [permission?] → started → checklist ticked → submitted
+raised → started → checklist ticked → submitted
        → [Team Lead] → [Department Head] → completed
 ```
 
@@ -99,9 +99,16 @@ who approved what cannot be erased by tidying up.
 
 ### The process catalog
 
-Each entry fixes four things so the person doing the work does not decide them:
-the turnaround target, the standard checklist, who signs it off, and whether
-permission is needed before work starts.
+Each entry fixes three things so the person doing the work does not decide
+them: the turnaround target, the standard checklist, and who signs it off.
+
+A fourth, a permission gate that had to be cleared before work could start,
+was **withdrawn after the demo**. `ProcessType.requires_authorisation` and the
+two `auth_*` stages survive as columns so the sign-off history on tasks that
+went through the gate still reads correctly, but nothing arms them:
+`Task.needs_authorisation` returns False regardless, and
+`approvals.opening_stage` always returns `STAGE_DRAFT`. Those two functions are
+where to look if it is ever reinstated.
 
 The checklist is **copied onto each task when it is raised and frozen there**.
 Editing a process later never shifts ticks under somebody mid-job.
@@ -114,8 +121,7 @@ something real is missing - the task titles inside it will say what.
 
 Turnaround is measured as two separate obligations, not one number:
 
-- **Time to submit** - from when work could actually start to handing in. A
-  wait for permission is not counted against the assignee.
+- **Time to submit** - from when work could start to handing in.
 - **Time in review** - from handing in to final sign-off.
 
 `staff_late` judges the person who did the work; `finished_late` is the overall
@@ -162,6 +168,7 @@ copied out of the console, and nothing real is sent by accident.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
+| `ASSIGNMENT_EMAILS_ENABLED` | `True` | Email somebody the moment a task is assigned to them |
 | `REMINDERS_ENABLED` | `True` | Master switch for chasing assignees |
 | `REMINDER_MODE` | `milestones` | `milestones` scales to each task's own deadline; `interval` is a fixed clock |
 | `REMINDER_MILESTONES` | `50,80` | Percentages of the way to the deadline at which to email |
@@ -265,6 +272,18 @@ mail server.
 
 ---
 
+## Tests
+
+```bash
+python manage.py test
+```
+
+`portal/tests.py` covers the withdrawn permission gate, including the cases
+that made removing it by hand go wrong: a flag forced straight into the
+database, the routes, the queue, and whether historical sign-offs still render.
+
+---
+
 ## Icons
 
 Remix Icon is vendored in `portal/static/vendor/remixicon/`, subset to only the
@@ -288,6 +307,72 @@ curl -o /tmp/ri.woff2 https://cdn.jsdelivr.net/npm/remixicon@4.9.0/fonts/remixic
 seven icons and the whole Work section loses them.
 
 Bump `ASSET_VERSION` after any change, or browsers keep the old font.
+
+---
+
+## Emails sent as things happen
+
+Three moments are emailed from the request itself rather than waiting for the
+cron round, because each leaves somebody standing still until they hear. They
+live in [`portal/notify.py`](portal/notify.py).
+
+| Moment | Who is told | What it carries |
+| --- | --- | --- |
+| Work assigned | the new assignee | who assigned it, the deadline, the checklist size, any notes |
+| Work sent to a team, unowned | that team's Team Lead | who sent it, the deadline, and that nobody is on it yet |
+| Handed in for sign-off | the reviewer | who submitted it, how long they took, whether that was late |
+| Decision made | the assignee | signed off, passed up a level, or sent back with the reason |
+
+A handover arrives unowned on purpose, so there is no assignee to email. The
+receiving Team Lead is told instead, because otherwise the handover is silent
+and they find out from the digest hours later while the deadline runs.
+
+**Assigning to yourself sends nothing** - you know what you just gave yourself,
+and a staff member raising their own work would otherwise be emailed about it
+every time. Reassigning emails only the new person; whoever was taken off is
+not told.
+
+**Assigning from the Django admin sends nothing.** These hook the two views
+that can set an assignee, not a `post_save` signal. A signal would catch every
+path but would also fire on bulk saves, so one management command could email
+the whole department.
+
+**None of these can raise.** A dead mail server must never undo a sign-off that
+already happened, so every failure is logged and swallowed. The digests below
+are the safety net: anything missed still turns up there.
+
+### How the emails are built
+
+Every message goes out as **both plain text and HTML**. The text part is not
+decoration: some clients refuse HTML, some people read mail in a terminal, and
+a message with no text alternative scores worse with spam filters.
+
+```
+portal/templates/email/base.html    the shell every message extends
+portal/templates/email/_fact.html   one label/value row
+portal/templates/email/_note.html   a callout: a reason, a warning
+<name>_subject.txt                  the subject line
+<name>_email.txt                    the plain text part
+<name>_email.html                   the HTML part, extends email/base.html
+```
+
+The HTML is tables and inline styles **on purpose**. Email clients are not
+browsers: Outlook renders with Word, Gmail strips much of a `<style>` block,
+and flex and grid are unreliable almost everywhere. Nothing external is loaded,
+because images and webfonts are blocked by default in most clients, so the
+icon font and stylesheet the app uses are no help here.
+
+Two details worth not undoing:
+
+- The shell is a fluid table with `max-width:600px`, wrapped in an
+  `[if mso]` fixed-width table. Word ignores `max-width`, so Outlook needs its
+  own cage or the layout runs full-bleed on a wide monitor.
+- Long values such as an email address are one unbreakable token, so the fact
+  cells set `overflow-wrap`. Without it a single address sets the table's
+  minimum width and the whole message overflows on a phone.
+
+To see them without sending anything, leave the `MS_GRAPH_*` variables blank
+and Django prints each message, both parts, to the `runserver` terminal.
 
 ---
 
@@ -333,8 +418,8 @@ the final warning goes with it.
 Nobody is emailed about a task that is:
 
 - completed or archived
-- waiting on a manager's permission, or already submitted for review
-  (the assignee cannot move it, so chasing them is noise)
+- already submitted for review (the assignee cannot move it, so chasing them
+  is noise)
 - unassigned, or assigned to a deactivated account
 
 Overdue tasks are chased once a day, not every few minutes. Routine reminders
@@ -346,10 +431,10 @@ work is starting again.
 
 ### Telling managers what is waiting on them
 
-`send_approval_digests` is the other half. Work stuck waiting for permission
-or sign-off is burning its turnaround time while the person who could release
-it has no idea, so each Team Lead and Department Head is emailed the contents
-of their Permission and Sign-off queues.
+`send_approval_digests` is the other half. Work stuck waiting for sign-off is
+burning its turnaround time while the person who could release it has no idea,
+so each Team Lead and Department Head is emailed the contents of their Sign-off
+queue.
 
 **One email per manager, not one per task.** A Department Head covering
 several teams would otherwise be buried, and the point is to be read.

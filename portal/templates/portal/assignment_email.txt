@@ -1,0 +1,28 @@
+{% autoescape off %}Hello {{ task.assignee.get_full_name|default:task.assignee.get_username }},
+
+{{ actor.get_full_name|default:actor.get_username }} has assigned this task to you.
+
+  {{ task.title }}
+  Process: {{ task.process_type.name }}{% if task.team %}
+  Team: {{ task.team.name }}{% endif %}
+  Target: {{ task.process_type.target_hours|floatformat:"-1" }} hours
+  Deadline: {{ task.deadline|date:"j M Y, H:i" }}{% if task.checklist_total %}
+  Checklist: {{ task.checklist_total }} item{{ task.checklist_total|pluralize }} to work through{% endif %}
+{% if task.notes %}
+Notes from {{ actor.get_full_name|default:actor.get_username }}:
+
+  {{ task.notes }}
+{% endif %}
+Open it here:
+
+{{ url }}
+{% if not_started %}
+Press Start work when you begin. The deadline above is already running.
+{% endif %}
+Nobody closes their own work, so when you are done you submit it and
+{% if task.team %}{{ task.team.lead.get_full_name|default:task.team.lead.get_username }}{% else %}your Team Lead{% endif %} signs it off.
+
+--
+Dash MFB Operations Portal
+This is an automated message; please don't reply to it.
+{% endautoescape %}

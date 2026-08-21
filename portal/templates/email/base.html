@@ -1,0 +1,111 @@
+{% comment %}
+Shell for every email the portal sends.
+
+Email clients are not browsers. This is tables and inline styles on purpose:
+Outlook renders with Word, Gmail strips much of a <style> block, and flex and
+grid are unreliable almost everywhere. Nothing external is loaded either, since
+images and webfonts are blocked by default in most clients.
+
+Blocks: preheader, heading, intro, facts (<tr> rows), body, cta_url, cta_label.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>{% block heading %}Dash MFB Operations{% endblock %}</title>
+</head>
+<body style="margin:0; padding:0; background:#f6f4f8; -webkit-font-smoothing:antialiased;">
+
+{# Shown in the inbox preview line, never on the page itself. #}
+<div style="display:none; max-height:0; overflow:hidden; opacity:0;">{% block preheader %}{% endblock %}</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+       style="background:#f6f4f8;">
+  <tr>
+    <td align="center" style="padding:28px 12px;">
+
+      {# Word ignores max-width, so Outlook gets a fixed 600px cage of its own. #}
+      <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+             style="width:100%; max-width:600px; background:#ffffff; border:1px solid #e8e4ec;
+                    border-radius:12px; overflow:hidden;">
+
+        <tr>
+          <td style="background:#2a1631; padding:18px 28px;">
+            <span style="font:600 15px/1.2 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                         color:#ffffff; letter-spacing:-.01em;">Dash MFB</span>
+            <span style="font:600 10px/1.2 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                         color:rgba(255,255,255,.55); letter-spacing:.10em;
+                         text-transform:uppercase; padding-left:8px;">Operations</span>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:30px 28px 8px;">
+            <h1 style="margin:0 0 12px; font:600 21px/1.3 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                       color:#1d1720; letter-spacing:-.01em;">{% block title %}{% endblock %}</h1>
+            <p style="margin:0; font:400 15px/1.6 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                      color:#4a4150;">{% block intro %}{% endblock %}</p>
+          </td>
+        </tr>
+
+        {% block facts_table %}
+        <tr>
+          <td style="padding:20px 28px 0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                   style="background:#faf9fb; border:1px solid #e8e4ec; border-radius:8px;">
+              {% block facts %}{% endblock %}
+            </table>
+          </td>
+        </tr>
+        {% endblock %}
+
+        {% block body %}{% endblock %}
+
+        {% block cta %}
+        <tr>
+          <td style="padding:24px 28px 4px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="background:#4f1a60; border-radius:8px;">
+                  <a href="{% block cta_url %}{% endblock %}"
+                     style="display:inline-block; padding:12px 22px; color:#ffffff;
+                            text-decoration:none; border-radius:8px;
+                            font:600 14px/1 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;">{% block cta_label %}Open the task{% endblock %}</a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {% endblock %}
+
+        <tr>
+          <td style="padding:22px 28px 26px;">
+            <p style="margin:0; font:400 12px/1.6 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                      color:#7b7280; word-break:break-all; overflow-wrap:anywhere;">
+              Or paste this into your browser:<br>
+              <span style="color:#4f1a60;">{% block cta_url_plain %}{% endblock %}</span>
+            </p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="border-top:1px solid #e8e4ec; padding:16px 28px 20px;">
+            <p style="margin:0; font:400 12px/1.6 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                      color:#7b7280;">
+              Dash MFB Operations Portal<br>
+              This is an automated message; please don't reply to it.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+      <!--[if mso]></td></tr></table><![endif]-->
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

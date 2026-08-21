@@ -177,6 +177,10 @@ PASSWORD_RESET_TIMEOUT = 60 * 60 * 3
 # reminder points somewhere useless.
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000').rstrip('/')
 
+# Email somebody the moment work is assigned to them. Sent from the request
+# rather than the cron round: being told promptly is the whole point.
+ASSIGNMENT_EMAILS_ENABLED = env_bool('ASSIGNMENT_EMAILS_ENABLED', True)
+
 REMINDERS_ENABLED = env_bool('REMINDERS_ENABLED', True)
 
 # How the chasing is paced.

@@ -5,7 +5,7 @@ cron; see the README. Safe to run as often as you like, since the rules in
 portal/digests.py decide who is actually due one.
 """
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -36,7 +36,7 @@ class Command(BaseCommand):
             if not digests.is_due(user, pending, now):
                 continue
 
-            subject, body = digests.build_email(user, pending, now)
+            subject, text, html = digests.build_email(user, pending, now)
 
             if dry_run:
                 self.stdout.write(f'  {user.email}: {subject}')
@@ -44,13 +44,14 @@ class Command(BaseCommand):
                 continue
 
             try:
-                send_mail(
+                message = EmailMultiAlternatives(
                     subject=subject,
-                    message=body,
+                    body=text,
                     from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False,
+                    to=[user.email],
                 )
+                message.attach_alternative(html, 'text/html')
+                message.send(fail_silently=False)
             except Exception as exc:
                 # Leave the timestamp alone so the next run tries again.
                 failed += 1

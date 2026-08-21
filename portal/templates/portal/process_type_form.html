@@ -41,14 +41,6 @@
         </div>
 
         <div class="field">
-            <label class="tick">
-                {{ form.requires_authorisation }}
-                <span>Must be permitted before work starts</span>
-            </label>
-            <p class="hint">For work that cannot be undone once begun.</p>
-        </div>
-
-        <div class="field">
             <label for="{{ form.checklist_text.id_for_label }}">Standard checklist</label>
             {{ form.checklist_text }}
             <p class="hint">One item per line.</p>

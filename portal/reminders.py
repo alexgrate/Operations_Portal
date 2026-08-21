@@ -102,9 +102,11 @@ def _interval_due(task, now):
 def _overdue_due(task, now):
     """Past the deadline the pace drops right down. Chasing hourly does not
     make late work finish sooner; it just trains people to ignore the sender."""
-    # Count from the deadline, not from a milestone sent before it, or the
-    # first late chase would land at the wrong time.
-    since = max(task.reminder_sent_at or task.deadline, task.deadline)
+    # Count from whichever came last: the deadline, the final warning, or the
+    # last routine chase. Counting from the deadline alone means a task that is
+    # already days late gets its final warning and a chase in the same minute.
+    stamps = [task.deadline, task.final_warning_at, task.reminder_sent_at]
+    since = max(stamp for stamp in stamps if stamp)
     return (now - since).total_seconds() / 60 >= settings.REMINDER_OVERDUE_EVERY_MINUTES
 
 
@@ -132,6 +134,11 @@ def due_kind(task, now=None):
     if left <= 0:
         return REMINDER if _overdue_due(task, now) else None
 
+    # The final warning is the last word before the deadline. A routine
+    # reminder after it would land minutes later saying the same thing.
+    if task.final_warning_at:
+        return None
+
     if settings.REMINDER_MODE == 'interval':
         return REMINDER if _interval_due(task, now) else None
     return REMINDER if _milestone_due(task, now) else None
@@ -152,6 +159,7 @@ def build_email(task, kind, now=None):
     }
     return (
         render_to_string('portal/reminder_subject.txt', context).strip(),
+        render_to_string('portal/reminder_email.txt', context),
         render_to_string('portal/reminder_email.html', context),
     )
 

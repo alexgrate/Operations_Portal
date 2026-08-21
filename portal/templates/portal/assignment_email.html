@@ -1,0 +1,32 @@
+{% extends "email/base.html" %}
+
+{% block preheader %}{{ actor.get_full_name|default:actor.get_username }} assigned you {{ task.title }}, due {{ task.deadline|date:"j M, H:i" }}.{% endblock %}
+{% block title %}A task has been assigned to you{% endblock %}
+{% block intro %}
+  Hello {{ task.assignee.get_full_name|default:task.assignee.get_username }},
+  <strong style="color:#1d1720;">{{ actor.get_full_name|default:actor.get_username }}</strong>
+  has put this on your desk.
+{% endblock %}
+
+{% block facts %}
+  {% include "email/_fact.html" with label="Task" value=task.title strong=True %}
+  {% include "email/_fact.html" with label="Process" value=task.process_type.name %}
+  {% if task.team %}{% include "email/_fact.html" with label="Team" value=task.team.name %}{% endif %}
+  {% include "email/_fact.html" with label="Deadline" value=task.deadline|date:"j M Y, H:i" strong=True %}
+  {% if task.checklist_total %}
+    {% include "email/_fact.html" with label="Checklist" value=task.checklist_total|stringformat:"s"|add:" items to work through" %}
+  {% endif %}
+{% endblock %}
+
+{% block body %}
+  {% if task.notes %}
+    {% include "email/_note.html" with label="Notes from "|add:actor.get_full_name text=task.notes %}
+  {% endif %}
+  {% if not_started %}
+    {% include "email/_note.html" with label="The clock is already running" text="Press Start work when you begin. When you are done you submit it, and it is signed off by someone else: nobody closes their own work." bg="#fdf3e2" accent="#8a5a00" %}
+  {% endif %}
+{% endblock %}
+
+{% block cta_url %}{{ url }}{% endblock %}
+{% block cta_url_plain %}{{ url }}{% endblock %}
+{% block cta_label %}Open the task{% endblock %}

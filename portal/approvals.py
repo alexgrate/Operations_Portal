@@ -46,33 +46,22 @@ def required_stages(task):
 # --- Permission to start ----------------------------------------------------
 
 def opening_stage(task, creator):
-    """Where a task starts, based on who raised it.
+    """Where a task starts.
 
-    Only applies to process types marked as needing permission. The more
-    senior the raiser, the fewer permissions outstanding.
+    The permission-before-work gate was withdrawn after the September demo:
+    the owners decided no task needs releasing before it can be started. Every
+    task now opens ready to work on.
+
+    This returns a constant rather than being deleted because the stages it
+    used to return still exist on historical rows, and because reinstating the
+    gate is a one-function change if that decision is revisited.
     """
-    if not task.process_type.requires_authorisation:
-        return Task.STAGE_DRAFT
-
-    if is_dept_head(creator):
-        return Task.STAGE_DRAFT
-    if _role(creator) == Profile.ROLE_TEAM_LEAD:
-        return Task.STAGE_AUTH_HEAD
-    return Task.STAGE_AUTH_LEAD
+    return Task.STAGE_DRAFT
 
 
 def apply_opening_state(task, creator):
-    """Set the starting stage, and record a self-authorisation when the raiser
-    is senior enough to bypass the gate. Without the record the task would
-    still count as needing permission and nobody could start it."""
+    """Set the starting stage for a newly raised task."""
     task.approval_stage = opening_stage(task, creator)
-
-    if (task.process_type.requires_authorisation
-            and task.approval_stage == Task.STAGE_DRAFT
-            and not task.authorised_at):
-        task.authorised_at = timezone.now()
-        task.authorised_by = creator
-
     return task.approval_stage
 
 

@@ -53,17 +53,8 @@ def my_work(user):
     """Mine, still to do - includes anything sent back to me."""
     return _base().filter(
         assignee=user,
-        approval_stage__in=[Task.STAGE_DRAFT, Task.STAGE_RETURNED, *Task.AWAITING_AUTH],
+        approval_stage__in=[Task.STAGE_DRAFT, Task.STAGE_RETURNED],
     )
-
-
-def to_authorise(user):
-    """Waiting for this person to permit work to start."""
-    if is_head(user):
-        return _base().filter(approval_stage__in=Task.AWAITING_AUTH)
-    if is_lead(user):
-        return _base().filter(approval_stage=Task.STAGE_AUTH_LEAD, team__lead=user)
-    return _base().none()
 
 
 def awaiting_me(user):
@@ -118,8 +109,6 @@ def completed(user):
 QUEUES = {
     'my-work':   {'label': 'My work',   'fn': my_work,         'everyone': True,
                   'icon': 'ri-inbox-line'},
-    # 'authorise': {'label': 'Permission', 'fn': to_authorise,   'everyone': False,
-    #               'icon': 'ri-lock-unlock-line'},
     'awaiting':  {'label': 'Sign-off',  'fn': awaiting_me,     'everyone': False,
                   'icon': 'ri-shield-check-line'},
     'submitted': {'label': 'Submitted', 'fn': submitted_by_me, 'everyone': True,

@@ -29,10 +29,11 @@ class ProcessType(models.Model):
         max_length=20, choices=APPROVAL_CHOICES, default=APPROVAL_LEAD,
     )
 
-    requires_authorisation = models.BooleanField(
-        default=False,
-        help_text='Tick for work that must be permitted before it starts, not just checked after.',
-    )
+    # Withdrawn after the demo and no longer read by anything that matters:
+    # Task.needs_authorisation returns False regardless. Kept as a column so
+    # the historical permission sign-offs on old tasks still make sense, and
+    # so reinstating the gate does not need a schema change.
+    requires_authorisation = models.BooleanField(default=False, editable=False)
 
     class Meta:
         ordering = ['name']
@@ -159,8 +160,14 @@ class Task(models.Model):
 
     @property
     def needs_authorisation(self):
-        """Permission is required and has not been given yet."""
-        return bool(self.process_type.requires_authorisation and not self.authorised_at)
+        """Always False. The permission-before-work gate was withdrawn.
+
+        Pinned here rather than at each caller so a stray requires_authorisation
+        flag - set in a fixture, an old import, or straight in the database -
+        cannot freeze a task at a stage nothing is left to move it on from.
+        See approvals.opening_stage.
+        """
+        return False
 
     @property
     def state_label(self):

@@ -25,14 +25,7 @@
             <h3 class="tile-title">{{ pt.name }}</h3>
             <div class="tags">
                 <span class="tag">{{ pt.target_hours|floatformat:"-1" }}h target</span>
-                {% if pt.requires_authorisation %}
-                    <span class="tag tag--warn">Permission first</span>
-                {% endif %}
-                {% if pt.approval_level != 'none' %}
-                    <span class="tag tag--warn">{{ pt.get_approval_level_display }}</span>
-                {% else %}
-                    <span class="tag tag--quiet">No sign-off</span>
-                {% endif %}
+                <span class="tag tag--warn">{{ pt.get_approval_level_display }}</span>
             </div>
 
             {% if pt.checklist %}
@@ -101,16 +94,6 @@
                 <label for="{{ form.approval_level.id_for_label }}">Sign-off required</label>
                 {{ form.approval_level }}
             </div>
-            <!-- <div class="field">
-                <label class="tick">
-                    {{ form.requires_authorisation }}
-                    <span>Must be permitted before work starts</span>
-                </label>
-                <p class="hint">
-                    For work that cannot be undone once begun. Staff-raised tasks need the
-                    team lead then the Department Head; lead-raised tasks need the Head.
-                </p>
-            </div> -->
             <div class="field">
                 <label for="{{ form.checklist_text.id_for_label }}">Standard checklist</label>
                 {{ form.checklist_text }}

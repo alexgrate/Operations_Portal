@@ -1,0 +1,23 @@
+{% autoescape off %}Hello,
+
+{{ submitter.get_full_name|default:submitter.get_username }} has handed this task in.
+It is waiting on {% if is_head_stage %}your approval as Department Head{% else %}your sign-off{% endif %}.
+
+  {{ task.title }}
+  Process: {{ task.process_type.name }}{% if task.team %}
+  Team: {{ task.team.name }}{% endif %}
+  Deadline: {{ task.deadline|date:"j M Y, H:i" }}{% if task.staff_hours is not None %}
+  Time taken: {{ task.staff_hours }} hours{% if task.staff_late %} (past the deadline){% endif %}{% endif %}{% if task.checklist_total %}
+  Checklist: all {{ task.checklist_total }} items ticked{% endif %}
+
+Approve it or send it back with a reason here:
+
+{{ url }}
+
+Nothing is finished until you decide. The task stays open, and its turnaround
+keeps counting, while it sits with you.
+
+--
+Dash MFB Operations Portal
+This is an automated message; please don't reply to it.
+{% endautoescape %}

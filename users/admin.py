@@ -141,7 +141,8 @@ class CustomUserAdmin(UserAdmin):
                     request=request,
                     use_https=request.is_secure(),
                     from_email=None,
-                    email_template_name="users/password_reset_email.html",
+                    email_template_name="users/password_reset_email.txt",
+                    html_email_template_name="users/password_reset_email.html",
                     subject_template_name="users/password_reset_subject.txt",
                 )
 

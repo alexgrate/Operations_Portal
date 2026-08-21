@@ -106,7 +106,9 @@ class ProcessTypeForm(forms.ModelForm):
 
     class Meta:
         model = ProcessType
-        fields = ['name', 'approval_level', 'requires_authorisation']
+        # requires_authorisation is deliberately absent: the permission gate
+        # was withdrawn after the demo. See approvals.opening_stage.
+        fields = ['name', 'approval_level']
         widgets = {
             'name': forms.TextInput(attrs={'placeholder': 'e.g. Account Opening - Retail'}),
         }

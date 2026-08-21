@@ -33,15 +33,14 @@ def approvers():
 
 
 def waiting_on(user):
-    """Everything sitting with this person, permission and sign-off together.
+    """Everything sitting with this person, awaiting their sign-off.
 
     Reuses the sidebar queues so the email can never disagree with what the
     person sees when they follow the link.
     """
-    pending = list(queues.to_authorise(user)) + list(queues.awaiting_me(user))
+    pending = list(queues.awaiting_me(user))
 
-    # A Department Head sees both stages of the permission queue, so a task can
-    # arrive twice.
+    # A Department Head sees several teams, so a task can arrive twice.
     unique = {task.pk: task for task in pending}
 
     # Tightest deadline first. Anything without one goes last, and never gets
@@ -89,7 +88,6 @@ def build_email(user, pending, now=None):
         {
             'task': task,
             'is_new': bool(last is None or (task.stage_since and task.stage_since > last)),
-            'needs_permission': task.approval_stage in Task.AWAITING_AUTH,
             'waiting': _waited(task, now),
             'url': settings.SITE_URL + reverse('task-detail', kwargs={'pk': task.pk}),
         }
@@ -101,11 +99,11 @@ def build_email(user, pending, now=None):
         'rows': rows,
         'total': len(rows),
         'overdue': sum(1 for r in rows if r['task'].urgency == 'overdue'),
-        'permission_url': settings.SITE_URL + reverse('queue', kwargs={'key': 'authorise'}),
         'signoff_url': settings.SITE_URL + reverse('queue', kwargs={'key': 'awaiting'}),
     }
     return (
         render_to_string('portal/digest_subject.txt', context).strip(),
+        render_to_string('portal/digest_email.txt', context),
         render_to_string('portal/digest_email.html', context),
     )
 

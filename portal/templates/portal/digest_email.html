@@ -1,20 +1,61 @@
-{% autoescape off %}Hello {{ user.get_full_name|default:user.get_username }},
+{% extends "email/base.html" %}
 
-{{ total }} task{{ total|pluralize }} {{ total|pluralize:"is,are" }} waiting on a decision from you{% if overdue %}, {{ overdue }} of {{ total|pluralize:"them,them" }} already past the deadline{% endif %}.
-{% for row in rows %}
-{% if row.is_new %}NEW  {% else %}     {% endif %}{{ row.task.title }}
-     {% if row.needs_permission %}Needs your permission to start{% else %}Needs your sign-off{% endif %}, waiting {{ row.waiting }}
-     {{ row.task.process_type.name }}{% if row.task.team %} · {{ row.task.team.name }}{% endif %}{% if row.task.assignee %} · {{ row.task.assignee.get_full_name|default:row.task.assignee.get_username }}{% endif %}
-     {% if row.task.urgency == 'overdue' %}OVERDUE since {{ row.task.deadline|date:"j M, H:i" }}{% else %}Due {{ row.task.deadline|date:"j M, H:i" }}{% endif %}
-     {{ row.url }}
-{% endfor %}
-Nothing moves until you act on these. Work waiting for permission has already
-started using up its turnaround time.
+{% block preheader %}{{ total }} task{{ total|pluralize }} waiting on a decision from you{% if overdue %}, {{ overdue }} already overdue{% endif %}.{% endblock %}
+{% block title %}{{ total }} task{{ total|pluralize }} waiting on you{% endblock %}
+{% block intro %}
+  Hello {{ user.get_full_name|default:user.get_username }},
+  {{ total }} task{{ total|pluralize }} {{ total|pluralize:"is,are" }} waiting on your sign-off{% if overdue %},
+  and <strong style="color:#b3261e;">{{ overdue }}</strong> of them {{ overdue|pluralize:"is,are" }} already past the deadline{% endif %}.
+{% endblock %}
 
-Permission queue: {{ permission_url }}
-Sign-off queue:   {{ signoff_url }}
+{# One task per card, so this section carries the list instead. #}
+{% block facts_table %}{% endblock %}
 
---
-Dash MFB Operations Portal
-This is an automated message; please don't reply to it.
-{% endautoescape %}
+{% block body %}
+<tr>
+  <td style="padding:22px 28px 0;">
+    {% for row in rows %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+             style="background:#faf9fb; border:1px solid {% if row.task.urgency == 'overdue' %}#f2c3c0{% else %}#e8e4ec{% endif %};
+                    border-radius:8px; margin-bottom:10px;">
+        <tr>
+          <td style="padding:14px 16px;">
+
+            {% if row.is_new %}
+              <span style="display:inline-block; margin-bottom:6px; padding:2px 7px; border-radius:4px;
+                           background:#f4edf6; color:#4f1a60; letter-spacing:.08em; text-transform:uppercase;
+                           font:600 9px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;">New</span>
+            {% endif %}
+
+            <p style="margin:0 0 4px; font:600 15px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                      color:#1d1720;">
+              <a href="{{ row.url }}" style="color:#1d1720; text-decoration:none;">{{ row.task.title }}</a>
+            </p>
+
+            <p style="margin:0 0 8px; font:400 12.5px/1.5 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+                      color:#7b7280;">
+              {{ row.task.process_type.name }}{% if row.task.team %} &middot; {{ row.task.team.name }}{% endif %}{% if row.task.assignee %} &middot; {{ row.task.assignee.get_full_name|default:row.task.assignee.get_username }}{% endif %}<br>
+              Waiting {{ row.waiting }}
+            </p>
+
+            {% if row.task.urgency == 'overdue' %}
+              <span style="display:inline-block; padding:3px 8px; border-radius:4px; background:#fceceb;
+                           color:#b3261e; font:600 11px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;">Overdue since {{ row.task.deadline|date:"j M, H:i" }}</span>
+            {% else %}
+              <span style="display:inline-block; padding:3px 8px; border-radius:4px; background:#eef1f7;
+                           color:#2c4a9a; font:600 11px/1.4 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;">Due {{ row.task.deadline|date:"j M, H:i" }}</span>
+            {% endif %}
+
+          </td>
+        </tr>
+      </table>
+    {% endfor %}
+  </td>
+</tr>
+
+{% include "email/_note.html" with text="Nothing is finished until you decide. Each task stays open, and its turnaround keeps counting, while it sits with you." %}
+{% endblock %}
+
+{% block cta_url %}{{ signoff_url }}{% endblock %}
+{% block cta_url_plain %}{{ signoff_url }}{% endblock %}
+{% block cta_label %}Open your Sign-off queue{% endblock %}

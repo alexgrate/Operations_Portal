@@ -1,21 +1,41 @@
-{% autoescape off %}Hello {% if task.assignee %}{{ task.assignee.get_full_name|default:task.assignee.get_username }}{% else %}there{% endif %},
+{% extends "email/base.html" %}
 
-{% if overdue %}This task passed its deadline {{ overdue_by }} ago and has not been submitted.{% elif is_final %}This task is due in {{ time_left }}.{% else %}This is a reminder about a task assigned to you. It is due in {{ time_left }}.{% endif %}
+{% block preheader %}{% if overdue %}{{ task.title }} passed its deadline {{ overdue_by }} ago.{% else %}{{ task.title }} is due in {{ time_left }}.{% endif %}{% endblock %}
 
-  {{ task.title }}
-  Process: {{ task.process_type.name }}{% if task.team %}
-  Team: {{ task.team.name }}{% endif %}
-  Deadline: {{ task.deadline|date:"j M Y, H:i" }}
-  Status: {{ task.state_label }}{% if task.checklist_total %}
-  Checklist: {{ task.checklist_done_count }} of {{ task.checklist_total }} done{% endif %}
+{% block title %}
+  {% if overdue %}This task is overdue
+  {% elif is_final %}{{ time_left }} left
+  {% else %}Due in {{ time_left }}{% endif %}
+{% endblock %}
 
-Open it here:
+{% block intro %}
+  Hello {% if task.assignee %}{{ task.assignee.get_full_name|default:task.assignee.get_username }}{% else %}there{% endif %},
+  {% if overdue %}this task passed its deadline <strong style="color:#b3261e;">{{ overdue_by }} ago</strong> and has not been submitted.
+  {% elif is_final %}this is the last call before its deadline.
+  {% else %}this is a reminder about a task assigned to you.{% endif %}
+{% endblock %}
 
-{{ url }}
-{% if not task.started_at %}
-Work has not been started on this task yet. Open it and press Start work.
-{% endif %}
---
-Dash MFB Operations Portal
-This is an automated message; please don't reply to it.
-{% endautoescape %}
+{% block facts %}
+  {% include "email/_fact.html" with label="Task" value=task.title strong=True %}
+  {% include "email/_fact.html" with label="Process" value=task.process_type.name %}
+  {% if task.team %}{% include "email/_fact.html" with label="Team" value=task.team.name %}{% endif %}
+  {% if overdue %}
+    {% include "email/_fact.html" with label="Deadline" value=task.deadline|date:"j M Y, H:i" tone="#b3261e" strong=True %}
+  {% else %}
+    {% include "email/_fact.html" with label="Deadline" value=task.deadline|date:"j M Y, H:i" strong=True %}
+  {% endif %}
+  {% include "email/_fact.html" with label="Status" value=task.state_label %}
+  {% if task.checklist_total %}
+    {% include "email/_fact.html" with label="Checklist" value=task.checklist_done_count|stringformat:"s"|add:" of "|add:task.checklist_total|stringformat:"s"|add:" done" %}
+  {% endif %}
+{% endblock %}
+
+{% block body %}
+  {% if not task.started_at %}
+    {% include "email/_note.html" with label="Not started" text="Work has not begun on this task yet. Open it and press Start work." bg="#fdf3e2" accent="#8a5a00" %}
+  {% endif %}
+{% endblock %}
+
+{% block cta_url %}{{ url }}{% endblock %}
+{% block cta_url_plain %}{{ url }}{% endblock %}
+{% block cta_label %}Open the task{% endblock %}

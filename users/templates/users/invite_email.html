@@ -1,17 +1,22 @@
-{% autoescape off %}Hello {{ user.get_full_name|default:user.get_username }},
+{% extends "email/base.html" %}
 
-An account has been created for you on the Dash MFB Operations Portal.
+{% block preheader %}Your Dash MFB Operations Portal account is ready. Choose a password to sign in.{% endblock %}
+{% block title %}Your account is ready{% endblock %}
+{% block intro %}
+  Hello {{ user.get_full_name|default:user.get_username }},
+  an account has been created for you on the Dash MFB Operations Portal.
+  Choose a password and you are in.
+{% endblock %}
 
-Open this link to choose your password:
+{% block facts %}
+  {% include "email/_fact.html" with label="You sign in with" value=user.email strong=True %}
+  {% include "email/_fact.html" with label="Link expires in" value=expiry_days|stringformat:"s"|add:" days" %}
+{% endblock %}
 
-{{ protocol }}://{{ domain }}{% url 'invite-accept' uidb64=uid token=token %}
+{% block body %}
+  {% include "email/_note.html" with text="Nobody else sets your password, and nobody can see it. The link below works once. If it has expired, ask an administrator to send you a new one." %}
+{% endblock %}
 
-You sign in with this email address: {{ user.email }}
-
-The link can only be used once and expires in {{ expiry_days }} days. If it has
-expired, ask an administrator to send you a new one.
-
---
-Dash MFB Operations Portal
-This is an automated message; please don't reply to it.
-{% endautoescape %}
+{% block cta_url %}{{ protocol }}://{{ domain }}{% url 'invite-accept' uidb64=uid token=token %}{% endblock %}
+{% block cta_url_plain %}{{ protocol }}://{{ domain }}{% url 'invite-accept' uidb64=uid token=token %}{% endblock %}
+{% block cta_label %}Choose your password{% endblock %}

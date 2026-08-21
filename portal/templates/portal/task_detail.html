@@ -25,22 +25,6 @@
 
             {% if task.notes %}<p class="detail-notes">{{ task.notes|linebreaksbr }}</p>{% endif %}
 
-            {% if task.approval_stage == 'auth_lead' or task.approval_stage == 'auth_head' %}
-                <p class="banner banner--warn">
-                    Work cannot start until this is permitted.
-                    {% if task.approval_stage == 'auth_lead' %}
-                        Waiting on {{ task.team.lead.get_full_name|default:task.team.lead.username }} (Team Lead).
-                    {% else %}
-                        Waiting on the Department Head.
-                    {% endif %}
-                </p>
-            {% elif task.authorised_at %}
-                <p class="banner banner--ok">
-                    Permitted {{ task.authorised_at|date:"j M Y, H:i" }}
-                    {% if task.authorised_by %}by {{ task.authorised_by.get_full_name|default:task.authorised_by.username }}{% endif %}.
-                </p>
-            {% endif %}
-
             {% if task.is_archived %}
                 <p class="banner">
                     Archived {{ task.archived_at|date:"j M Y" }}
@@ -98,31 +82,6 @@
                     </li>
                 {% endfor %}
             </ul>
-        </div>
-        {% endif %}
-
-        {% if can_authorise %}
-        <div class="card card--action">
-            <h3 class="card-title">Permission to start</h3>
-            <p class="hint">
-                This is {{ task.process_type.name }}, which must be permitted before
-                anyone works on it. Raised by
-                {{ task.created_by.get_full_name|default:task.created_by.username|default:"an unknown user" }}.
-            </p>
-            <form method="post" class="form">
-                {% csrf_token %}
-                <div class="field">
-                    <label for="authComment">Comment <span class="muted">(required to refuse)</span></label>
-                    <textarea id="authComment" name="comment" rows="3"
-                              placeholder="e.g. limit not confirmed with Credit"></textarea>
-                </div>
-                <div class="row-actions">
-                    <button class="btn btn-danger" type="submit"
-                            formaction="{% url 'task-decline' task.id %}">Refuse</button>
-                    <button class="btn btn-ok" type="submit"
-                            formaction="{% url 'task-authorise' task.id %}">Permit</button>
-                </div>
-            </form>
         </div>
         {% endif %}
 
@@ -251,17 +210,10 @@
 
     <aside class="detail-side">
 
-        {% if can_start or can_submit or can_request_auth or is_head %}
+        {% if can_start or can_submit or is_head %}
         <div class="card">
             <h3 class="card-title">Actions</h3>
 
-            {% if can_request_auth %}
-                <form method="post" action="{% url 'task-request-auth' task.id %}">
-                    {% csrf_token %}
-                    <button class="btn btn-primary btn-block" type="submit">Ask for permission again</button>
-                </form>
-                <p class="hint">It was refused. Amend it, then send it back up.</p>
-            {% endif %}
 
             {% if can_start %}
                 <form method="post" action="{% url 'task-start' task.id %}">

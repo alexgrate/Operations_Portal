@@ -5,7 +5,7 @@ the rules in portal/reminders.py decide what is actually due, so extra runs
 send nothing. See the README for the cron line.
 """
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -36,7 +36,7 @@ class Command(BaseCommand):
             if kind is None:
                 continue
 
-            subject, body = reminders.build_email(task, kind, now)
+            subject, text, html = reminders.build_email(task, kind, now)
 
             if dry_run:
                 self.stdout.write(f'  [{kind}] {task.assignee.email}: {subject}')
@@ -44,13 +44,14 @@ class Command(BaseCommand):
                 continue
 
             try:
-                send_mail(
+                message = EmailMultiAlternatives(
                     subject=subject,
-                    message=body,
+                    body=text,
                     from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[task.assignee.email],
-                    fail_silently=False,
+                    to=[task.assignee.email],
                 )
+                message.attach_alternative(html, 'text/html')
+                message.send(fail_silently=False)
             except Exception as exc:
                 # Leave the task unmarked so the next run tries again.
                 failed += 1

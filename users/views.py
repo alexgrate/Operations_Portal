@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth import views as auth_views
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
@@ -30,13 +30,14 @@ def send_invite(request, user):
         'protocol': 'https' if request.is_secure() else 'http',
         'expiry_days': getattr(settings, 'INVITE_LINK_TIMEOUT', 604800) // 86400,
     }
-    send_mail(
+    message = EmailMultiAlternatives(
         subject=render_to_string('users/invite_subject.txt', context).strip(),
-        message=render_to_string('users/invite_email.html', context),
+        body=render_to_string('users/invite_email.txt', context),
         from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        fail_silently=False,
+        to=[user.email],
     )
+    message.attach_alternative(render_to_string('users/invite_email.html', context), 'text/html')
+    message.send(fail_silently=False)
 
     from django.utils import timezone
     profile = user.profile

@@ -142,8 +142,6 @@ def task_detail(request, pk, form=None):
         'sign_offs': task.approvals.select_related('actor'),
         'can_submit': approvals.can_submit(request.user, task),
         'can_review': approvals.can_review(request.user, task),
-        'can_authorise': approvals.can_authorise(request.user, task),
-        'can_request_auth': approvals.can_request_authorisation(request.user, task),
         'can_edit': approvals.can_edit(request.user, task),
         'editable': approvals.editable_fields(request.user, task),
         'can_start': approvals.can_start(request.user, task),
@@ -157,18 +155,15 @@ def task_create(request):
     if form.is_valid():
         task = form.save(commit=False)
         task.created_by = request.user
-        # Work needing permission starts in a waiting state; how far up it has
-        # to go depends on who raised it.
         approvals.apply_opening_state(task, request.user)
         task.save()
 
-        if task.approval_stage in Task.AWAITING_AUTH:
-            messages.success(
-                request,
-                f'"{task.title}" created. It needs permission before work can start.',
-            )
-        else:
-            messages.success(request, 'Task created.')
+        # Exactly one of these fires: assigned() needs somebody on it,
+        # handed_to_team() needs nobody on it.
+        notify.assigned(task, request.user)
+        notify.handed_to_team(task, request.user)
+
+        messages.success(request, 'Task created.')
         return redirect('task-detail', pk=task.pk)
 
     messages.error(request, 'Could not create the task - check the highlighted fields.')
@@ -199,6 +194,8 @@ def task_update(request, pk):
         raise PermissionDenied
 
     was_process = task.process_type_id
+    was_assignee = task.assignee_id
+    was_team = task.team_id
     form = TaskForm(request.POST, instance=task, user=request.user, editable=editable)
     if not form.is_valid():
         messages.error(request, 'Could not save - check the highlighted fields.')
@@ -216,6 +213,15 @@ def task_update(request, pk):
         messages.info(request, 'Process type changed, so the deadline and checklist were reset.')
 
     task.save()
+
+    # Only when the work moved onto somebody new. An unrelated edit is not
+    # news for anybody.
+    if task.assignee_id and task.assignee_id != was_assignee:
+        notify.assigned(task, request.user)
+    elif not task.assignee_id and (task.team_id != was_team or was_assignee):
+        # Newly ownerless, or moved to a team that has not picked it up yet.
+        notify.handed_to_team(task, request.user)
+
     messages.success(request, 'Task updated.')
     return redirect('task-detail', pk=pk)
 
@@ -225,66 +231,10 @@ def task_update(request, pk):
 def task_start(request, pk):
     task = get_object_or_404(Task, pk=pk)
     if not approvals.can_start(request.user, task):
-        if task.needs_authorisation:
-            messages.error(request, 'This task needs permission before work can start.')
-            return redirect('task-detail', pk=pk)
         raise PermissionDenied
 
     task.started_at = timezone.now()
     task.save(update_fields=['started_at'])
-    return redirect('task-detail', pk=pk)
-
-
-@login_required
-@require_POST
-def task_authorise(request, pk):
-    """Give permission for work to start."""
-    task = get_object_or_404(Task, pk=pk)
-
-    if not approvals.can_authorise(request.user, task):
-        messages.error(request, 'You cannot give permission at this stage.')
-        return redirect('task-detail', pk=pk)
-
-    stage = approvals.authorise(task, request.user, request.POST.get('comment', '').strip())
-
-    if stage in Task.AWAITING_AUTH:
-        messages.success(request, f'Permitted - "{task.title}" now needs the Department Head.')
-    else:
-        messages.success(request, f'"{task.title}" is permitted. Work can start.')
-    return redirect('queue', key='authorise')
-
-
-@login_required
-@require_POST
-def task_decline(request, pk):
-    """Refuse permission. A reason is compulsory."""
-    task = get_object_or_404(Task, pk=pk)
-
-    if not approvals.can_authorise(request.user, task):
-        messages.error(request, 'You cannot refuse permission at this stage.')
-        return redirect('task-detail', pk=pk)
-
-    comment = request.POST.get('comment', '').strip()
-    if not comment:
-        messages.error(request, 'Say why you are refusing - whoever raised it needs to know.')
-        return redirect('task-detail', pk=pk)
-
-    approvals.decline(task, request.user, comment)
-    messages.success(request, f'"{task.title}" was not permitted.')
-    return redirect('queue', key='authorise')
-
-
-@login_required
-@require_POST
-def task_request_auth(request, pk):
-    """Put a refused task up for permission again after amending it."""
-    task = get_object_or_404(Task, pk=pk)
-
-    if not approvals.can_request_authorisation(request.user, task):
-        raise PermissionDenied
-
-    approvals.request_authorisation(task, task.created_by or request.user)
-    messages.success(request, 'Sent for permission again.')
     return redirect('task-detail', pk=pk)
 
 
@@ -351,8 +301,6 @@ def task_submit(request, pk):
         return redirect('task-detail', pk=pk)
 
     if approvals.submit(task) == Task.STAGE_APPROVED:
-        # Only reachable for the Department Head's own work; there is nobody
-        # above them to sign it off.
         messages.success(request, f'"{task.title}" is complete.')
     else:
         notify.submitted_for_review(task, request.user)

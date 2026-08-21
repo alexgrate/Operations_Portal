@@ -1,40 +1,43 @@
-{% autoescape off %}Hello {{ task.assignee.get_full_name|default:task.assignee.get_username }},
-{% if returned %}
-{{ actor.get_full_name|default:actor.get_username }} has sent this task back to you.
+{% extends "email/base.html" %}
 
-  {{ task.title }}
+{% block preheader %}{% if returned %}{{ actor.get_full_name }} sent {{ task.title }} back to you.{% elif finished %}{{ task.title }} is signed off. Nothing further to do.{% else %}{{ task.title }} passed the Team Lead and is now with the Department Head.{% endif %}{% endblock %}
 
-Reason given:
+{% block title %}
+  {% if returned %}Sent back to you
+  {% elif finished %}Signed off
+  {% else %}Approved, now with the Department Head{% endif %}
+{% endblock %}
 
-  {{ comment }}
+{% block intro %}
+  Hello {{ task.assignee.get_full_name|default:task.assignee.get_username }},
+  <strong style="color:#1d1720;">{{ actor.get_full_name|default:actor.get_username }}</strong>
+  {% if returned %}has sent this task back to you.
+  {% elif finished %}has signed this off. It is complete, and there is nothing further for you to do.
+  {% else %}has approved this task. It now goes to the Department Head for final sign-off, so there is nothing for you to do yet.{% endif %}
+{% endblock %}
 
-It is back in your My work queue. Put it right and submit it again.
-{% elif finished %}
-{{ actor.get_full_name|default:actor.get_username }} has signed this off.
-It is complete, and there is nothing further for you to do.
+{% block facts %}
+  {% include "email/_fact.html" with label="Task" value=task.title strong=True %}
+  {% include "email/_fact.html" with label="Process" value=task.process_type.name %}
+  {% if finished %}
+    {% if task.staff_hours is not None %}{% include "email/_fact.html" with label="Your time" value=task.staff_hours|stringformat:"s"|add:" hours" %}{% endif %}
+    {% if task.review_hours is not None %}{% include "email/_fact.html" with label="Time in review" value=task.review_hours|stringformat:"s"|add:" hours" %}{% endif %}
+    {% include "email/_fact.html" with label="Status" value="Complete" tone="#146c38" strong=True %}
+  {% else %}
+    {% include "email/_fact.html" with label="Deadline" value=task.deadline|date:"j M Y, H:i" %}
+    {% include "email/_fact.html" with label="Status" value=task.state_label strong=True %}
+  {% endif %}
+{% endblock %}
 
-  {{ task.title }}
-  Process: {{ task.process_type.name }}{% if task.staff_hours %}
-  Your time: {{ task.staff_hours }} hours{% endif %}{% if task.review_hours %}
-  Time in review: {{ task.review_hours }} hours{% endif %}{% if comment %}
+{% block body %}
+  {% if returned %}
+    {% include "email/_note.html" with label="Reason given" text=comment bg="#fceceb" accent="#b3261e" %}
+    {% include "email/_note.html" with text="It is back in your My work queue. Put it right, then submit it again." %}
+  {% elif comment %}
+    {% include "email/_note.html" with label="Note from "|add:actor.get_full_name text=comment %}
+  {% endif %}
+{% endblock %}
 
-Note from {{ actor.get_full_name|default:actor.get_username }}:
-
-  {{ comment }}{% endif %}
-{% else %}
-{{ actor.get_full_name|default:actor.get_username }} has approved this task.
-It now goes to the Department Head for final sign-off, so there is nothing
-for you to do yet.
-
-  {{ task.title }}{% if comment %}
-
-Note from {{ actor.get_full_name|default:actor.get_username }}:
-
-  {{ comment }}{% endif %}
-{% endif %}
-{{ url }}
-
---
-Dash MFB Operations Portal
-This is an automated message; please don't reply to it.
-{% endautoescape %}
+{% block cta_url %}{{ url }}{% endblock %}
+{% block cta_url_plain %}{{ url }}{% endblock %}
+{% block cta_label %}{% if returned %}Open and fix it{% else %}Open the task{% endif %}{% endblock %}

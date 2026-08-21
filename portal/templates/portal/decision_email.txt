@@ -1,0 +1,40 @@
+{% autoescape off %}Hello {{ task.assignee.get_full_name|default:task.assignee.get_username }},
+{% if returned %}
+{{ actor.get_full_name|default:actor.get_username }} has sent this task back to you.
+
+  {{ task.title }}
+
+Reason given:
+
+  {{ comment }}
+
+It is back in your My work queue. Put it right and submit it again.
+{% elif finished %}
+{{ actor.get_full_name|default:actor.get_username }} has signed this off.
+It is complete, and there is nothing further for you to do.
+
+  {{ task.title }}
+  Process: {{ task.process_type.name }}{% if task.staff_hours is not None %}
+  Your time: {{ task.staff_hours }} hours{% endif %}{% if task.review_hours is not None %}
+  Time in review: {{ task.review_hours }} hours{% endif %}{% if comment %}
+
+Note from {{ actor.get_full_name|default:actor.get_username }}:
+
+  {{ comment }}{% endif %}
+{% else %}
+{{ actor.get_full_name|default:actor.get_username }} has approved this task.
+It now goes to the Department Head for final sign-off, so there is nothing
+for you to do yet.
+
+  {{ task.title }}{% if comment %}
+
+Note from {{ actor.get_full_name|default:actor.get_username }}:
+
+  {{ comment }}{% endif %}
+{% endif %}
+{{ url }}
+
+--
+Dash MFB Operations Portal
+This is an automated message; please don't reply to it.
+{% endautoescape %}

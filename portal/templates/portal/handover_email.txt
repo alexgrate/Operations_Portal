@@ -1,0 +1,25 @@
+{% autoescape off %}Hello {{ task.team.lead.get_full_name|default:task.team.lead.get_username }},
+
+{{ actor.get_full_name|default:actor.get_username }} has sent work to your team.
+Nobody is doing it yet: you decide who picks it up.
+
+  {{ task.title }}
+  Process: {{ task.process_type.name }}
+  Team: {{ task.team.name }}
+  Deadline: {{ task.deadline|date:"j M Y, H:i" }}{% if task.checklist_total %}
+  Checklist: {{ task.checklist_total }} item{{ task.checklist_total|pluralize }}{% endif %}
+{% if task.notes %}
+Notes from {{ actor.get_full_name|default:actor.get_username }}:
+
+  {{ task.notes }}
+{% endif %}
+Open it and set an assignee:
+
+{{ url }}
+
+The deadline above is already running, so this does not wait for anybody.
+
+--
+Dash MFB Operations Portal
+This is an automated message; please don't reply to it.
+{% endautoescape %}

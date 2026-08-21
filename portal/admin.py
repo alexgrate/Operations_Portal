@@ -6,6 +6,10 @@ from .models import Approval, Comment, ProcessType, Task
 @admin.register(ProcessType)
 class ProcessTypeAdmin(admin.ModelAdmin):
     list_display = ['name', 'target_hours', 'approval_level', 'checklist_count']
+    # The permission gate was withdrawn after the demo, so the flag is hidden
+    # here too. Leaving it editable would let one tick freeze every task of
+    # that type at a stage nothing can move on from.
+    exclude = ['requires_authorisation']
     list_filter = ['approval_level']
     search_fields = ['name']
 
