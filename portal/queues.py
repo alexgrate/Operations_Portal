@@ -118,8 +118,8 @@ def completed(user):
 QUEUES = {
     'my-work':   {'label': 'My work',   'fn': my_work,         'everyone': True,
                   'icon': 'ri-inbox-line'},
-    'authorise': {'label': 'Permission', 'fn': to_authorise,   'everyone': False,
-                  'icon': 'ri-lock-unlock-line'},
+    # 'authorise': {'label': 'Permission', 'fn': to_authorise,   'everyone': False,
+    #               'icon': 'ri-lock-unlock-line'},
     'awaiting':  {'label': 'Sign-off',  'fn': awaiting_me,     'everyone': False,
                   'icon': 'ri-shield-check-line'},
     'submitted': {'label': 'Submitted', 'fn': submitted_by_me, 'everyone': True,
