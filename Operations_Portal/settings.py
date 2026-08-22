@@ -353,10 +353,12 @@ ASSET_VERSION = '14'
 # Where `manage.py collectstatic` writes to. Run it on every deploy.
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Compress and fingerprint on collectstatic, so a changed file gets a new name
-# and can be cached forever. ASSET_VERSION above stops being load-bearing once
-# this is on, but is left in place for the development server.
+# Gzip and brotli each collected file so WhiteNoise can serve the compressed
+# copy. Deliberately NOT the Manifest variant: fingerprinting would mean any
+# code path that renders a template needs collectstatic to have run first,
+# which makes the test suite depend on a build step and turns one uncollected
+# file into a 500. ASSET_VERSION above already busts caches on a CSS change.
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
-    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
 }
