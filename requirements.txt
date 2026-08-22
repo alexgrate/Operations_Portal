@@ -10,6 +10,25 @@ python-dotenv==1.2.2
 # macOS ship without root certificates, which makes TLS verification fail.
 certifi==2026.7.22
 
+# --- deployment -----------------------------------------------------------
+# Neither is needed to run locally on SQLite with `manage.py runserver`.
+
+# PostgreSQL driver. Django cannot talk to Postgres without it, so setting
+# DB_ENGINE to postgresql fails at startup if this is missing.
+psycopg[binary]==3.2.10
+
+# Serves the collected static files from inside the Django process, so IIS
+# proxies everything and never touches the filesystem. That is one rewrite
+# rule instead of three, and it makes exposing mediafiles/ by misconfiguration
+# impossible - those are customer documents and must stay behind the
+# permission check in portal.views.attachment_download.
+whitenoise==6.11.0
+
+# The WSGI server. Django's runserver is a development server and must never
+# face real traffic. Gunicorn does not run on Windows; waitress does, and is
+# what NSSM should be pointed at.
+waitress==3.0.2
+
 # Not used yet - nothing imports DRF and neither package is in INSTALLED_APPS.
 # Uncomment when the API layer is built.
 # djangorestframework==3.17.2

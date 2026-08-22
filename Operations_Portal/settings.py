@@ -73,6 +73,11 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+
+    # Serves everything under STATIC_ROOT. Must sit directly after the
+    # security middleware. Does not touch MEDIA_ROOT, which is the point.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -345,6 +350,13 @@ STATIC_URL = 'static/'
 # the browser cache. Bump when you edit the CSS.
 ASSET_VERSION = '14'
 
-# Where `manage.py collectstatic` writes to. Required before deploying -
-# with DEBUG off, Django does not serve static files itself.
+# Where `manage.py collectstatic` writes to. Run it on every deploy.
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Compress and fingerprint on collectstatic, so a changed file gets a new name
+# and can be cached forever. ASSET_VERSION above stops being load-bearing once
+# this is on, but is left in place for the development server.
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
