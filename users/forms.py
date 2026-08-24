@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from .models import CORPORATE_DOMAIN, Profile, Team
+from .models import CORPORATE_DOMAIN, Profile, Team, assignable_roles
 
 
 class StaffForm(forms.Form):
@@ -24,9 +24,13 @@ class StaffForm(forms.Form):
         help_text='Whose lead reviews their work. Someone may sit in more than one.',
     )
 
-    def __init__(self, *args, instance=None, **kwargs):
+    def __init__(self, *args, instance=None, actor=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.instance = instance
+        if actor is not None:
+            # Only roles below the actor's own; the ChoiceField then rejects
+            # anything else on POST, not just in the rendered dropdown.
+            self.fields['role'].choices = assignable_roles(actor)
         if instance is not None:
             self.fields['full_name'].initial = instance.get_full_name()
             self.fields['email'].initial = instance.email

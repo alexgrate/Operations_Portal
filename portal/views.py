@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from users.models import Profile
+from users.models import Profile, can_manage
 
 from . import approvals, notify, queues
 from .pagination import paginate
@@ -598,6 +598,7 @@ def staff_view(request):
             'teams': list(person.profile.teams.all()) if hasattr(person, 'profile') else [],
             'open': len(open_tasks),
             'overdue': sum(1 for t in open_tasks if t.urgency == 'overdue'),
+            'manageable': can_manage(request.user, person),
         })
 
     page = paginate(request, rows)

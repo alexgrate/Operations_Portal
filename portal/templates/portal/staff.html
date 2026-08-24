@@ -76,6 +76,7 @@
                 </td>
 
                 <td class="acts">
+                    {% if r.manageable %}
                     <a class="btn btn-sm" href="{% url 'staff-edit' r.user.id %}">Edit</a>
 
                     {% if r.user.is_active and not r.user.has_usable_password %}
@@ -98,6 +99,7 @@
                                 {% if r.user.is_active %}Deactivate{% else %}Reactivate{% endif %}
                             </button>
                         </form>
+                    {% endif %}
                     {% endif %}
                 </td>
             </tr>

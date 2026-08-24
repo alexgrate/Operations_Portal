@@ -21,6 +21,38 @@ ROLE_CHOICES = [
 
 LEADERSHIP_ROLES = [ROLE_TEAM_LEAD, ROLE_DEPT_HEAD, ROLE_ADMIN]
 
+ROLE_RANK = {ROLE_STAFF: 0, ROLE_TEAM_LEAD: 1, ROLE_DEPT_HEAD: 2, ROLE_ADMIN: 3}
+
+
+def _role_of(user):
+    profile = getattr(user, 'profile', None)
+    return profile.role if profile is not None else ROLE_STAFF
+
+
+def can_manage(actor, target):
+    """Whether actor may edit, invite, or deactivate target.
+
+    Strictly below the actor's own rank only - otherwise any team lead can
+    deactivate the department head, or promote themselves through the edit
+    form. Admins are the exception: they manage everyone (including other
+    admins), because the top rank has no one above it to do so.
+    """
+    if _role_of(actor) == ROLE_ADMIN:
+        return True
+    return ROLE_RANK[_role_of(actor)] > ROLE_RANK[_role_of(target)]
+
+
+def assignable_roles(actor):
+    """Role choices the actor may hand out: strictly below their own rank.
+
+    Admins can assign every role, including Admin - appointing a second
+    admin must not require falling back to the Django superuser.
+    """
+    if _role_of(actor) == ROLE_ADMIN:
+        return list(ROLE_CHOICES)
+    limit = ROLE_RANK[_role_of(actor)]
+    return [(role, label) for role, label in ROLE_CHOICES if ROLE_RANK[role] < limit]
+
 
 class Team(models.Model):
     name = models.CharField(max_length=100, unique=True)

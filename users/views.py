@@ -16,7 +16,7 @@ from portal.pagination import paginate
 from portal.views import management_required
 
 from .forms import StaffForm, TeamForm
-from .models import Team
+from .models import Team, can_manage
 from .tokens import invite_token_generator
 
 
@@ -49,7 +49,7 @@ def send_invite(request, user):
 @management_required
 def staff_create(request):
     if request.method == 'POST':
-        form = StaffForm(request.POST)
+        form = StaffForm(request.POST, actor=request.user)
         if form.is_valid():
             user = form.save()
             try:
@@ -69,7 +69,7 @@ def staff_create(request):
             return redirect('portal-staff')
         messages.error(request, 'Could not add them - check the highlighted fields.')
     else:
-        form = StaffForm()
+        form = StaffForm(actor=request.user)
 
     return render(request, 'portal/staff_form.html', {
         'form': form, 'active_tab': 'staff', 'heading': 'Add staff',
@@ -81,15 +81,19 @@ def staff_create(request):
 def staff_edit(request, pk):
     person = get_object_or_404(User, pk=pk)
 
+    if not can_manage(request.user, person):
+        messages.error(request, 'You can only manage people ranked below your own role.')
+        return redirect('portal-staff')
+
     if request.method == 'POST':
-        form = StaffForm(request.POST, instance=person)
+        form = StaffForm(request.POST, instance=person, actor=request.user)
         if form.is_valid():
             form.save()
             messages.success(request, 'Saved.')
             return redirect('portal-staff')
         messages.error(request, 'Could not save - check the highlighted fields.')
     else:
-        form = StaffForm(instance=person)
+        form = StaffForm(instance=person, actor=request.user)
 
     return render(request, 'portal/staff_form.html', {
         'form': form, 'person': person, 'active_tab': 'staff',
@@ -102,6 +106,10 @@ def staff_edit(request, pk):
 @require_POST
 def staff_resend_invite(request, pk):
     person = get_object_or_404(User, pk=pk)
+
+    if not can_manage(request.user, person):
+        messages.error(request, 'You can only manage people ranked below your own role.')
+        return redirect('portal-staff')
 
     if person.has_usable_password():
         messages.info(request, f'{person.get_full_name()} has already set a password.')
@@ -129,6 +137,8 @@ def staff_deactivate(request, pk):
 
     if person == request.user:
         messages.error(request, 'You cannot deactivate your own account.')
+    elif not can_manage(request.user, person):
+        messages.error(request, 'You can only manage people ranked below your own role.')
     elif person.teams_led.exists():
         messages.error(request, 'They still lead a team. Reassign it first.')
     else:
