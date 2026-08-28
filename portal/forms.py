@@ -2,7 +2,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from users.models import Team
+from users.models import ROLE_ADMIN, Team
 
 from .models import Comment, ProcessType, Task
 
@@ -35,9 +35,31 @@ class TaskForm(forms.ModelForm):
         self.user = user
         self.fields['team'].required = True
         self.fields['team'].empty_label = 'Choose a team…'
-        self.fields['assignee'].queryset = User.objects.filter(is_active=True).order_by(
+
+        # Admins are deliberately not assignable. is_dept_head() counts the
+        # Admin role and any superuser as a head, so effective_stages() drops
+        # the head sign-off for an admin assignee: a "Department Head only"
+        # task assigned to one is approved the moment it is submitted, with an
+        # empty approval chain. That exemption belongs to the Department Head,
+        # who has nobody above them. Admin is a setup account and inherited it
+        # by accident.
+        assignable = (
+            User.objects.filter(is_active=True)
+            .exclude(profile__role=ROLE_ADMIN)
+            .exclude(is_superuser=True)
+        )
+
+        # An admin already holding a task stays selectable on that task's own
+        # form. Without this, editing anything else about it fails validation
+        # on a field the page was not offering to change.
+        current = getattr(self.instance, 'assignee_id', None)
+        if current:
+            assignable = assignable | User.objects.filter(pk=current)
+
+        self.fields['assignee'].queryset = assignable.distinct().order_by(
             'first_name', 'username',
         )
+
 
         # Locked fields are disabled rather than removed. Django ignores posted
         # data for a disabled field and keeps the initial value, so a crafted

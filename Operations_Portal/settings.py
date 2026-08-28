@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
@@ -316,11 +317,24 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-# Timestamps are stored in UTC (USE_TZ) and rendered in this zone. Set
-# DJANGO_TIME_ZONE=Africa/Lagos so turnaround times read as local time.
-# TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'UTC')
+# Timestamps are stored in UTC (USE_TZ below). This is only the zone
+# they are rendered in - and the one REMINDER_HOURS is judged against, so a 
+# wrong value here silently shifts the quiet period for reminder emails.
+# 
+# Africa/Lagos is the default because that is where the department sits; a
+# deployment elsewhere overrides it with DJANGO_TIME_ZONE.
+TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'Africa/Lagos').strip()
 
-TIME_ZONE = 'Africa/Lagos'
+# A typo would otherwise surface as a ZoneInfoNotFoundError on the first page
+# that renders a timestamp, which reads as a broken view rather than a bad
+# .env. Fail at startup instead, the way REMINDER_MODE and REMINDER_HOURS do.
+try:
+    ZoneInfo(TIME_ZONE)
+except (ZoneInfoNotFoundError, ValueError) as exc:
+    raise ImproperlyConfigured(
+        f'DJANGO_TIME_ZONE must be an IANA zone name such as "Africa/Lagos", '
+        f'got "{TIME_ZONE}".'
+    ) from exc
 
 USE_I18N = True
 

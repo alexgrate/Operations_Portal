@@ -6,6 +6,8 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
 
+from users.models import ROLE_ADMIN
+
 
 class ProcessType(models.Model):
     """A kind of operational work, with its turnaround target and checklist."""
@@ -55,8 +57,14 @@ class Task(models.Model):
 
     assignee = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='assigned_tasks', limit_choices_to={'is_active': True},
+        related_name='assigned_tasks',
+        # Mirrors TaskForm: an admin assignee has its head sign-off dropped by
+        # approvals.effective_stages(), so the Django admin must not offer one
+        # either. See the comment there.
+        limit_choices_to=models.Q(is_active=True, is_superuser=False)
+        & ~models.Q(profile__role=ROLE_ADMIN),
     )
+
     team = models.ForeignKey(
         'users.Team', on_delete=models.PROTECT, null=True, blank=True,
         related_name='tasks', limit_choices_to={'is_active': True},

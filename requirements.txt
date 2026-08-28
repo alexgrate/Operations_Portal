@@ -33,3 +33,7 @@ waitress==3.0.2
 # Uncomment when the API layer is built.
 # djangorestframework==3.17.2
 # django-cors-headers==4.9.0
+
+# Windows ships no system timezone database, so zoneinfo cannot resolve
+# TIME_ZONE without this. Harmless on Linux and macOS, which have their own.
+tzdata==2026.1 ; sys_platform == 'win32'
