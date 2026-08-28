@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from .models import CORPORATE_DOMAIN, Profile, Team, assignable_roles
+from .models import CORPORATE_DOMAIN, ROLE_ADMIN, Profile, Team, assignable_roles
 
 
 class StaffForm(forms.Form):
@@ -82,6 +82,21 @@ class StaffForm(forms.Form):
         return user
 
 
+def _operational(people):
+    """Drop Admin accounts from a picker of people.
+
+    Admin is a setup role, not an operational one. is_dept_head() counts the
+    Admin role and any superuser as a head, so an admin leading a team becomes
+    its reviewer, and an admin sitting in one becomes assignable within it -
+    the same distortion of the sign-off chain that keeps them out of the task
+    assignee list.
+
+    Both exclusions are needed: the role covers an Admin who is not a
+    superuser, is_superuser covers a superuser whose role was later changed.
+    """
+    return people.exclude(profile__role=ROLE_ADMIN).exclude(is_superuser=True)
+
+
 class _PersonLabel:
     """Name and address together.
 
@@ -124,17 +139,37 @@ class TeamForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         # limit_choices_to on the model already restricts the lead dropdown to
-        # active leadership accounts. Order it so it is usable.
-        self.fields['lead'].queryset = self.fields['lead'].queryset.order_by(
+        # active leadership accounts, but LEADERSHIP_ROLES includes Admin.
+        # Drop those here - see _operational. Whoever already leads this team
+        # stays selectable, or editing its name would fail validation on a
+        # field the page was not offering to change.
+        leads = _operational(self.fields['lead'].queryset)
+        if self.instance.pk and self.instance.lead_id:
+            leads = leads | self.fields['lead'].queryset.filter(pk=self.instance.lead_id)
+
+        self.fields['lead'].queryset = leads.distinct().order_by(
             'first_name', 'username',
         )
         self.fields['lead'].empty_label = 'Choose a lead…'
 
-        self.fields['members'].queryset = User.objects.filter(is_active=True).order_by(
+        members = _operational(User.objects.filter(is_active=True))
+
+        # An admin already sitting in this team stays listed. Hiding a current
+        # member would not merely omit the row: save() below removes everybody
+        # left unticked, so they would be dropped from the team silently by an
+        # edit that never mentioned them.
+        #
+        # Deliberately still active-only, which leaves deactivated members
+        # behaving exactly as they did before: this guard exists to cover the
+        # people the filter above newly hides, and nobody else.
+        if self.instance.pk:
+            current = User.objects.filter(profile__teams=self.instance)
+            members = members | current.filter(is_active=True)
+            self.fields['members'].initial = current
+
+        self.fields['members'].queryset = members.distinct().order_by(
             'first_name', 'username',
         )
-        if self.instance.pk:
-            self.fields['members'].initial = User.objects.filter(profile__teams=self.instance)
 
     def clean_name(self):
         name = self.cleaned_data['name'].strip()
