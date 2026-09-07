@@ -40,11 +40,8 @@ def waiting_on(user):
     """
     pending = list(queues.awaiting_me(user))
 
-    # A Department Head sees several teams, so a task can arrive twice.
     unique = {task.pk: task for task in pending}
 
-    # Tightest deadline first. Anything without one goes last, and never gets
-    # compared against a real date.
     far_future = timezone.now() + timedelta(days=3650)
     return sorted(unique.values(), key=lambda t: t.deadline or far_future)
 

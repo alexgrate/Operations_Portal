@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import PasswordResetForm
 
-from .models import Profile, Team
+from .models import AUDITOR_TEAMS_ERROR, ROLE_AUDITOR, Profile, Team
 
 
 
@@ -35,6 +35,12 @@ class EmployeeAddForm(forms.ModelForm):
             "role",
             "teams",
         )
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("role") == ROLE_AUDITOR and cleaned.get("teams"):
+            self.add_error("teams", AUDITOR_TEAMS_ERROR)
+        return cleaned
 
     def clean_email(self):
         email = self.cleaned_data["email"].strip().lower()

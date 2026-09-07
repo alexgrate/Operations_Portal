@@ -362,7 +362,7 @@ STATIC_URL = 'static/'
 
 # Appended to the stylesheet link so a changed CSS file is never served from
 # the browser cache. Bump when you edit the CSS.
-ASSET_VERSION = '14'
+ASSET_VERSION = '15'
 
 # Where `manage.py collectstatic` writes to. Run it on every deploy.
 STATIC_ROOT = BASE_DIR / 'staticfiles'

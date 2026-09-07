@@ -1,14 +1,11 @@
 from django.contrib import admin
 
-from .models import Approval, Comment, ProcessType, Task
+from .models import Approval, AttachmentAccess, Comment, ProcessType, Task
 
 
 @admin.register(ProcessType)
 class ProcessTypeAdmin(admin.ModelAdmin):
     list_display = ['name', 'target_hours', 'approval_level', 'checklist_count']
-    # The permission gate was withdrawn after the demo, so the flag is hidden
-    # here too. Leaving it editable would let one tick freeze every task of
-    # that type at a stage nothing can move on from.
     exclude = ['requires_authorisation']
     list_filter = ['approval_level']
     search_fields = ['name']
@@ -58,3 +55,20 @@ class ApprovalAdmin(admin.ModelAdmin):
 class CommentAdmin(admin.ModelAdmin):
     list_display = ['task', 'author', 'created_at']
     search_fields = ['body']
+
+
+@admin.register(AttachmentAccess)
+class AttachmentAccessAdmin(admin.ModelAdmin):
+    """The document access trail. Recorded automatically, never edited here."""
+
+    list_display = ['created_at', 'user', 'file_name', 'task']
+    list_filter = ['created_at']
+    search_fields = ['file_name', 'user__first_name', 'user__last_name', 'user__email']
+    date_hierarchy = 'created_at'
+    readonly_fields = ['attachment', 'task', 'user', 'file_name', 'created_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

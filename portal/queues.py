@@ -1,7 +1,9 @@
 """The work queues shown in the sidebar, and who may see each one."""
 from django.db.models import Q
 
-from users.models import LEADERSHIP_ROLES, ROLE_ADMIN, ROLE_DEPT_HEAD, ROLE_TEAM_LEAD
+from users.models import (
+    LEADERSHIP_ROLES, ROLE_ADMIN, ROLE_AUDITOR, ROLE_DEPT_HEAD, ROLE_TEAM_LEAD,
+)
 
 from .models import Task
 
@@ -22,6 +24,19 @@ def is_lead(user):
 def is_management(user):
     return user.is_superuser or role_of(user) in LEADERSHIP_ROLES
 
+
+def is_auditor(user):
+    """Read-only observer. Sees every team's work and can change none of it.
+
+    Deliberately not management: is_management gates every button and every
+    staff, team and catalog page, so an auditor must never satisfy it.
+    """
+    return not user.is_superuser and role_of(user) == ROLE_AUDITOR
+
+
+def can_report(user):
+    """May see the day report and the analytics page."""
+    return is_management(user) or is_auditor(user)
 
 def _base():
     """Every queue except Archived hides archived work."""
@@ -124,6 +139,10 @@ QUEUES = {
 
 def visible_queues(user):
     """The queues this person should see in the sidebar, in order."""
+    # An auditor carries no work, so every queue would be an empty page.
+    if is_auditor(user):
+        return []
+
     return [
         (key, spec['label'], spec['icon'])
         for key, spec in QUEUES.items()
@@ -139,6 +158,8 @@ def get_queue(key, user):
     spec = QUEUES.get(key)
     if not spec:
         return None, None
+    if is_auditor(user):
+        return None, None
     if not (spec['everyone'] or is_management(user)):
         return None, None
     return spec['label'], spec['fn'](user)
@@ -152,6 +173,7 @@ def can_see_task(user, task):
     """
     return bool(
         is_management(user)
+        or is_auditor(user)
         or task.assignee_id == user.id
         or task.created_by_id == user.id
         or (task.team_id and task.team.lead_id == user.id)

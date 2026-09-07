@@ -2,20 +2,25 @@
 
 Run with:  python manage.py test portal
 """
-from datetime import timedelta
+import io
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 from users.models import Profile, Team
 
 from . import approvals, digests, queues, reminders
 from .forms import ProcessTypeForm
-from .models import Approval, ProcessType, Task
+from .models import Approval, Attachment, AttachmentAccess, ProcessType, Task
 
 PW = 'Testing!2345'
 
@@ -712,3 +717,408 @@ class ReminderCronTests(TestCase):
         self.assertEqual(mail.outbox, [])
         self.assertIsNone(task.reminder_sent_at)
         self.assertEqual(task.reminders_sent, 0)
+
+
+class AuditorAccessTests(TestCase):
+    """The Auditor reads everything and writes nothing.
+
+    Read-only is easy to believe and hard to guarantee: several write views
+    ask only "can you see this task?", which an auditor can. Each of those is
+    pinned here.
+    """
+
+    def setUp(self):
+        self.admin = make_user('aud_admin', Profile.ROLE_ADMIN, 'Bola')
+        self.head = make_user('aud_head', Profile.ROLE_DEPT_HEAD, 'Chika')
+        self.lead = make_user('aud_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        self.staff = make_user('aud_staff', Profile.ROLE_STAFF, 'Tunde')
+        self.auditor = make_user('aud_auditor', Profile.ROLE_AUDITOR, 'Ife')
+
+        self.team = Team.objects.create(name='Audit Team', lead=self.lead)
+        for user in (self.lead, self.staff):
+            user.profile.teams.add(self.team)
+
+        self.process = ProcessType.objects.create(
+            name='Audit Process', target_hours=8, checklist=['Only item'],
+        )
+        # Nothing links the auditor to this task: not the assignee, not the
+        # team, not the person who raised it.
+        self.task = Task.objects.create(
+            title='Someone else work', process_type=self.process,
+            assignee=self.staff, team=self.team, created_by=self.lead,
+        )
+
+    def client_for(self, user):
+        client = self.client_class()
+        self.assertTrue(client.login(username=user.email, password=PW))
+        return client
+
+    # --- what they may read -----------------------------------------------
+
+    def test_auditor_sees_the_day_report(self):
+        response = self.client_for(self.auditor).get(reverse('portal-day'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_auditor_sees_analytics(self):
+        response = self.client_for(self.auditor).get(reverse('portal-analytics'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_auditor_reads_a_task_they_have_nothing_to_do_with(self):
+        response = self.client_for(self.auditor).get(
+            reverse('task-detail', args=[self.task.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Someone else work')
+
+    def test_auditor_lands_on_the_day_report(self):
+        response = self.client_for(self.auditor).get(reverse('portal-home'))
+        self.assertRedirects(response, reverse('portal-day'))
+
+    def test_the_task_page_offers_an_auditor_nothing_to_click(self):
+        response = self.client_for(self.auditor).get(
+            reverse('task-detail', args=[self.task.pk])
+        )
+        self.assertTrue(response.context['read_only'])
+        for flag in ('can_submit', 'can_review', 'can_edit', 'can_start'):
+            self.assertFalse(response.context[flag], flag)
+        self.assertNotContains(response, reverse('comment-create', args=[self.task.pk]))
+        self.assertNotContains(response, reverse('attachment-upload', args=[self.task.pk]))
+
+    # --- what they may not do ---------------------------------------------
+
+    def test_auditor_cannot_comment(self):
+        response = self.client_for(self.auditor).post(
+            reverse('comment-create', args=[self.task.pk]), {'body': 'Looks wrong'},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.task.comments.count(), 0)
+
+    def test_auditor_cannot_upload(self):
+        response = self.client_for(self.auditor).post(
+            reverse('attachment-upload', args=[self.task.pk]), {},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_auditor_cannot_raise_a_task(self):
+        response = self.client_for(self.auditor).post(reverse('task-create'), {
+            'title': 'Mine now', 'process_type': self.process.pk, 'team': self.team.pk,
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Task.objects.filter(title='Mine now').exists())
+
+    def test_auditor_cannot_approve(self):
+        self.task.approval_stage = Task.STAGE_LEAD_REVIEW
+        self.task.save(update_fields=['approval_stage'])
+
+        # This view refuses politely rather than with a 403; what matters is
+        # that the stage does not move and no sign-off is recorded.
+        self.client_for(self.auditor).post(
+            reverse('task-approve', args=[self.task.pk]), {},
+        )
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.approval_stage, Task.STAGE_LEAD_REVIEW)
+        self.assertEqual(self.task.approvals.count(), 0)
+
+    def test_auditor_cannot_archive(self):
+        response = self.client_for(self.auditor).post(
+            reverse('task-archive', args=[self.task.pk]), {},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.task.refresh_from_db()
+        self.assertIsNone(self.task.archived_at)
+
+    def test_auditor_is_kept_out_of_the_management_pages(self):
+        client = self.client_for(self.auditor)
+        for name in ('portal-staff', 'portal-teams'):
+            response = client.get(reverse(name))
+            self.assertRedirects(response, reverse('portal-home'),
+                                 target_status_code=302, msg_prefix=name)
+
+    def test_auditor_has_no_queues(self):
+        self.assertEqual(queues.visible_queues(self.auditor), [])
+        response = self.client_for(self.auditor).get(reverse('queue', args=['my-work']))
+        self.assertEqual(response.status_code, 403)
+
+    def test_auditor_is_not_management(self):
+        self.assertFalse(queues.is_management(self.auditor))
+        self.assertFalse(queues.is_head(self.auditor))
+        self.assertTrue(queues.can_report(self.auditor))
+
+    def test_auditor_cannot_be_given_work(self):
+        from .forms import TaskForm
+        assignable = TaskForm(user=self.lead).fields['assignee'].queryset
+        self.assertIn(self.staff, assignable)
+        self.assertNotIn(self.auditor, assignable)
+
+    # --- and the reporting pages stay shut to everyone below a lead -------
+
+    def test_management_still_sees_the_day_report(self):
+        for user in (self.head, self.lead, self.admin):
+            response = self.client_for(user).get(reverse('portal-day'))
+            self.assertEqual(response.status_code, 200, user.email)
+
+    def test_staff_cannot_see_the_day_report(self):
+        response = self.client_for(self.staff).get(reverse('portal-day'))
+        self.assertRedirects(response, reverse('portal-home'), target_status_code=302)
+
+
+class AttachmentAccessLogTests(TestCase):
+    """Every document read leaves a row behind."""
+
+    def setUp(self):
+        self.lead = make_user('log_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        self.staff = make_user('log_staff', Profile.ROLE_STAFF, 'Tunde')
+        self.auditor = make_user('log_auditor', Profile.ROLE_AUDITOR, 'Ife')
+        self.team = Team.objects.create(name='Log Team', lead=self.lead)
+        self.process = ProcessType.objects.create(name='Log Process', target_hours=4)
+        self.task = Task.objects.create(
+            title='With a document', process_type=self.process,
+            assignee=self.staff, team=self.team, created_by=self.lead,
+        )
+        self.attachment = Attachment.objects.create(
+            task=self.task,
+            file=SimpleUploadedFile('statement.pdf', b'%PDF-1.4 pretend'),
+            original_name='statement.pdf', size=16, uploaded_by=self.staff,
+        )
+
+    def tearDown(self):
+        self.attachment.file.delete(save=False)
+
+    def client_for(self, user):
+        client = self.client_class()
+        self.assertTrue(client.login(username=user.email, password=PW))
+        return client
+
+    def test_opening_a_document_is_recorded(self):
+        response = self.client_for(self.auditor).get(
+            reverse('attachment-download', args=[self.attachment.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        response.close()
+
+        entry = AttachmentAccess.objects.get()
+        self.assertEqual(entry.user, self.auditor)
+        self.assertEqual(entry.task, self.task)
+        self.assertEqual(entry.file_name, 'statement.pdf')
+
+    def test_a_refused_download_records_nothing(self):
+        outsider = make_user('log_outsider', Profile.ROLE_STAFF, 'Zainab')
+        response = self.client_for(outsider).get(
+            reverse('attachment-download', args=[self.attachment.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AttachmentAccess.objects.count(), 0)
+
+    def test_the_trail_outlives_the_document(self):
+        client = self.client_for(self.staff)
+        client.get(reverse('attachment-download', args=[self.attachment.pk])).close()
+
+        client.post(reverse('attachment-delete', args=[self.attachment.pk]))
+
+        entry = AttachmentAccess.objects.get()
+        self.assertIsNone(entry.attachment)
+        self.assertEqual(entry.file_name, 'statement.pdf')
+        self.assertEqual(entry.user, self.staff)
+
+
+class DayReportTests(TestCase):
+    """What was completed, on which day, in Lagos time."""
+
+    def setUp(self):
+        self.head = make_user('day_head', Profile.ROLE_DEPT_HEAD, 'Chika')
+        self.lead = make_user('day_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        self.staff = make_user('day_staff', Profile.ROLE_STAFF, 'Tunde')
+        self.auditor = make_user('day_auditor', Profile.ROLE_AUDITOR, 'Ife')
+        self.team = Team.objects.create(name='Day Team', lead=self.lead)
+        self.process = ProcessType.objects.create(name='Day Process', target_hours=8)
+
+    def client_for(self, user):
+        client = self.client_class()
+        self.assertTrue(client.login(username=user.email, password=PW))
+        return client
+
+    def make_completed(self, title, completed_at, submitted_at=None):
+        task = Task.objects.create(
+            title=title, process_type=self.process,
+            assignee=self.staff, team=self.team, created_by=self.lead,
+        )
+        Task.objects.filter(pk=task.pk).update(
+            approval_stage=Task.STAGE_APPROVED,
+            submitted_at=submitted_at or completed_at - timedelta(hours=1),
+            completed_at=completed_at,
+        )
+        return Task.objects.get(pk=task.pk)
+
+    def titles_on(self, **params):
+        response = self.client_for(self.auditor).get(reverse('portal-day'), params)
+        self.assertEqual(response.status_code, 200)
+        return [row['task'].title for row in response.context['rows']]
+
+    def test_today_shows_only_todays_completions(self):
+        now = timezone.now()
+        self.make_completed('Finished today', now - timedelta(minutes=5))
+        self.make_completed('Finished last week', now - timedelta(days=7))
+
+        self.assertEqual(self.titles_on(), ['Finished today'])
+
+    def test_last_seven_days_reaches_back(self):
+        now = timezone.now()
+        self.make_completed('Finished today', now - timedelta(minutes=5))
+        self.make_completed('Finished three days ago', now - timedelta(days=3))
+        self.make_completed('Finished last month', now - timedelta(days=31))
+
+        titles = self.titles_on(preset='week')
+        self.assertIn('Finished today', titles)
+        self.assertIn('Finished three days ago', titles)
+        self.assertNotIn('Finished last month', titles)
+
+    def test_a_day_means_a_lagos_day_not_a_utc_one(self):
+        """00:30 in Lagos is still the previous day in UTC.
+
+        Filtering on UTC days would file that task under yesterday, and the
+        list an auditor checks against Ncube's would be short by an hour of
+        every night.
+        """
+        lagos = ZoneInfo('Africa/Lagos')
+        local_midnight_ish = datetime(2026, 6, 15, 0, 30, tzinfo=lagos)
+        self.make_completed('Just after midnight', local_midnight_ish)
+
+        self.assertEqual(self.titles_on(**{'from': '2026-06-15', 'to': '2026-06-15'}),
+                         ['Just after midnight'])
+        self.assertEqual(self.titles_on(**{'from': '2026-06-14', 'to': '2026-06-14'}), [])
+
+    def test_handed_in_but_unsigned_is_counted_not_listed(self):
+        task = Task.objects.create(
+            title='Waiting on the lead', process_type=self.process,
+            assignee=self.staff, team=self.team, created_by=self.lead,
+        )
+        Task.objects.filter(pk=task.pk).update(
+            approval_stage=Task.STAGE_LEAD_REVIEW, submitted_at=timezone.now(),
+        )
+
+        response = self.client_for(self.auditor).get(reverse('portal-day'))
+        self.assertEqual(response.context['pending_count'], 1)
+        self.assertEqual(list(response.context['rows']), [])
+
+    def test_the_report_names_who_signed_it_off(self):
+        task = self.make_completed('Signed off', timezone.now() - timedelta(minutes=5))
+        Approval.objects.create(
+            task=task, actor=self.lead, stage=Approval.STAGE_LEAD,
+            decision=Approval.DECISION_APPROVED,
+        )
+
+        response = self.client_for(self.auditor).get(reverse('portal-day'))
+        self.assertEqual(response.context['rows'][0]['signed_off_by'], self.lead)
+
+    def test_counts_split_on_time_from_late(self):
+        now = timezone.now()
+        early = self.make_completed('Beat the clock', now - timedelta(minutes=5))
+        late = self.make_completed('Missed it', now - timedelta(minutes=5))
+        Task.objects.filter(pk=late.pk).update(deadline=now - timedelta(days=1))
+
+        response = self.client_for(self.auditor).get(reverse('portal-day'))
+        self.assertEqual(response.context['completed_count'], 2)
+        self.assertEqual(response.context['late_count'], 1)
+        self.assertEqual(response.context['on_time_count'], 1)
+        self.assertEqual(response.context['people_count'], 1)
+        self.assertIsNotNone(early.completed_at)
+
+    # --- the export --------------------------------------------------------
+
+    def workbook_for(self, **params):
+        response = self.client_for(self.auditor).get(
+            reverse('portal-day'), {'export': 'xlsx', **params},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('spreadsheetml', response['Content-Type'])
+        self.assertIn('.xlsx', response['Content-Disposition'])
+        return load_workbook(io.BytesIO(response.content)).active
+
+    def column_values(self, sheet, heading):
+        headings = [cell.value for cell in sheet[1]]
+        index = headings.index(heading)
+        return [row[index] for row in sheet.iter_rows(min_row=2, values_only=True)]
+
+    def test_export_is_a_workbook_of_the_same_day(self):
+        self.make_completed('Exported task', timezone.now() - timedelta(minutes=5))
+        self.make_completed('Old task', timezone.now() - timedelta(days=9))
+
+        sheet = self.workbook_for()
+        self.assertEqual(self.column_values(sheet, 'Task'), ['Exported task'])
+        self.assertIn('Signed off by', [cell.value for cell in sheet[1]])
+
+    def test_dates_and_hours_arrive_as_dates_and_numbers(self):
+        """The reason for a workbook rather than a CSV.
+
+        Read from a CSV, every one of these is text: the columns cannot be
+        sorted, and Excel shows ##### until each is widened by hand.
+        """
+        self.make_completed('Typed properly', timezone.now() - timedelta(minutes=5))
+        sheet = self.workbook_for()
+
+        completed = sheet.cell(row=2, column=1)
+        self.assertIsInstance(completed.value, datetime)
+        self.assertEqual(completed.number_format, 'yyyy-mm-dd hh:mm')
+        # Excel holds no timezone, so the value is local wall-clock time.
+        self.assertIsNone(completed.value.tzinfo)
+
+        total = self.column_values(sheet, 'Total hrs')[0]
+        self.assertIsInstance(total, (int, float))
+
+    def test_every_column_is_wide_enough_to_show_its_contents(self):
+        sheet = self.workbook_for()
+        for index in range(1, len(sheet[1]) + 1):
+            width = sheet.column_dimensions[get_column_letter(index)].width
+            self.assertTrue(width and width >= 7,
+                            f'column {index} has no usable width')
+
+    def test_export_carries_document_names_but_never_documents(self):
+        task = self.make_completed('With papers', timezone.now() - timedelta(minutes=5))
+        attachment = Attachment.objects.create(
+            task=task, file=SimpleUploadedFile('kyc.pdf', b'%PDF-1.4 pretend'),
+            original_name='kyc.pdf', size=16, uploaded_by=self.staff,
+        )
+        self.addCleanup(attachment.file.delete, save=False)
+
+        response = self.client_for(self.auditor).get(
+            reverse('portal-day'), {'export': 'xlsx'},
+        )
+        sheet = load_workbook(io.BytesIO(response.content)).active
+
+        self.assertEqual(self.column_values(sheet, 'File names'), ['kyc.pdf'])
+        self.assertEqual(self.column_values(sheet, 'Files'), [1])
+        self.assertNotIn(b'%PDF-1.4 pretend', response.content)
+        self.assertIn(reverse('task-detail', args=[task.pk]),
+                      self.column_values(sheet, 'Link')[0])
+
+    def test_export_will_not_hand_excel_a_formula(self):
+        self.make_completed('=cmd|/c calc', timezone.now() - timedelta(minutes=5))
+        sheet = self.workbook_for()
+
+        title = sheet.cell(row=2, column=2)
+        self.assertEqual(title.value, '=cmd|/c calc')
+        self.assertEqual(title.data_type, 's', 'stored as a formula, not text')
+
+    # --- and the range is bounded -----------------------------------------
+
+    def test_a_silly_range_is_capped_rather_than_scanning_everything(self):
+        response = self.client_for(self.auditor).get(
+            reverse('portal-day'), {'from': '1990-01-01', 'to': '2026-01-01'},
+        )
+        window = response.context['window']
+        self.assertTrue(window['capped'])
+        self.assertEqual((window['end'] - window['start']).days, 366)
+
+    def test_a_backwards_range_is_read_the_right_way_round(self):
+        response = self.client_for(self.auditor).get(
+            reverse('portal-day'), {'from': '2026-06-30', 'to': '2026-06-01'},
+        )
+        window = response.context['window']
+        self.assertEqual(str(window['start']), '2026-06-01')
+        self.assertEqual(str(window['end']), '2026-06-30')
+
+    def test_nonsense_dates_fall_back_to_today(self):
+        response = self.client_for(self.auditor).get(
+            reverse('portal-day'), {'from': 'yesterday-ish', 'to': ''},
+        )
+        self.assertEqual(response.context['window']['start'], timezone.localdate())

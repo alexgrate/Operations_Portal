@@ -31,6 +31,7 @@ urlpatterns = [
     path('app/catalog/<int:pk>/delete/', views.process_type_delete, name='process-type-delete'),
     path('app/catalog/<int:pk>/edit/', views.process_type_edit, name='process-type-edit'),
 
+    path('app/day/', views.day_report, name='portal-day'),
     path('app/analytics/', views.analytics_view, name='portal-analytics'),
     path('app/teams/', user_views.team_list, name='portal-teams'),
     path('app/teams/new/', user_views.team_create, name='team-create'),

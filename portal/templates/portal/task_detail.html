@@ -168,6 +168,7 @@
                 <p class="muted">No files yet.</p>
             {% endif %}
 
+            {% if not read_only %}
             <form method="post" action="{% url 'attachment-upload' task.id %}"
                   enctype="multipart/form-data" class="upload">
                 {% csrf_token %}
@@ -182,6 +183,7 @@
                 Images, PDFs and Office documents, up to {{ max_upload_mb }} MB each.
                 You can pick more than one.
             </p>
+            {% endif %}
         </div>
 
         <div class="card">
@@ -199,11 +201,13 @@
                     <p class="muted">No comments yet.</p>
                 {% endfor %}
             </div>
-            <form method="post" action="{% url 'comment-create' task.id %}" class="form comment-form">
-                {% csrf_token %}
-                {{ comment_form.body }}
-                <button class="btn" type="submit">Post</button>
-            </form>
+            {% if not read_only %}
+                <form method="post" action="{% url 'comment-create' task.id %}" class="form comment-form">
+                    {% csrf_token %}
+                    {{ comment_form.body }}
+                    <button class="btn" type="submit">Post</button>
+                </form>
+            {% endif %}
         </div>
 
     </div>

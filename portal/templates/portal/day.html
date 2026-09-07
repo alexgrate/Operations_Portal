@@ -1,0 +1,164 @@
+{% extends 'portal/base.html' %}
+{% load portal_extras %}
+
+{% block title %}Day report - Dash MFB{% endblock %}
+{% block heading %}Day report{% endblock %}
+
+{% block actions %}
+    <a class="btn btn-primary"
+       href="{% if export_query %}?{{ export_query }}&export=xlsx{% else %}?export=xlsx{% endif %}">
+        <i class="ri-download-2-line"></i> Export to Excel
+    </a>
+{% endblock %}
+
+{% block content %}
+
+<p class="page-intro">
+    Work completed
+    {% if window.is_single_day %}
+        on {{ window.start|date:"l j F Y" }}
+    {% else %}
+        between {{ window.start|date:"j M Y" }} and {{ window.end|date:"j M Y" }}
+    {% endif %}
+    - who did it, who signed it off, and how long it took.
+</p>
+
+<form method="get" class="filters">
+    <label class="field-inline">
+        <span>From</span>
+        <input type="date" name="from" class="select" value="{{ window.start|date:'Y-m-d' }}">
+    </label>
+    <label class="field-inline">
+        <span>To</span>
+        <input type="date" name="to" class="select" value="{{ window.end|date:'Y-m-d' }}">
+    </label>
+    <button class="btn" type="submit">Show</button>
+
+    <span class="filter-presets">
+        <a class="btn btn-sm" href="?preset=today">Today</a>
+        <a class="btn btn-sm" href="?preset=yesterday">Yesterday</a>
+        <a class="btn btn-sm" href="?preset=week">Last 7 days</a>
+    </span>
+</form>
+
+<div class="stats">
+    <div class="stat"><span class="stat-value">{{ completed_count }}</span><span class="stat-label">Completed</span></div>
+    <div class="stat"><span class="stat-value">{{ on_time_count }}</span><span class="stat-label">On time</span></div>
+    <div class="stat"><span class="stat-value">{{ late_count }}</span><span class="stat-label">Late</span></div>
+    <div class="stat"><span class="stat-value">{{ people_count }}</span><span class="stat-label">People involved</span></div>
+    <div class="stat">
+        <span class="stat-value">{% if avg_hours %}{{ avg_hours }}h{% else %}-{% endif %}</span>
+        <span class="stat-label">Avg. turnaround</span>
+    </div>
+</div>
+
+{% if pending_count %}
+    <p class="page-note">
+        <i class="ri-time-line"></i>
+        {{ pending_count }} task{{ pending_count|pluralize }} handed in
+        {% if window.is_single_day %}that day{% else %}in this period{% endif %}
+        {{ pending_count|pluralize:"is,are" }} still awaiting sign-off, so
+        {{ pending_count|pluralize:"it does,they do" }} not appear below yet.
+    </p>
+{% endif %}
+
+<div class="panel">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>Completed</th>
+                <th>Task</th>
+                <th>Done by</th>
+                <th>Signed off by</th>
+                <th class="num">Work</th>
+                <th class="num">Review</th>
+                <th class="num">Total</th>
+                <th>Against target</th>
+                <th class="num">Files</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            <tr>
+                <td data-label="Completed">
+                    <span class="dim">{{ r.task.completed_at|date:"j M, H:i" }}</span>
+                </td>
+
+                <td data-label="Task">
+                    <a class="row-title" href="{% url 'task-detail' r.task.id %}">{{ r.task.title }}</a>
+                    <span class="row-sub">
+                        {{ r.task.process_type.name }}
+                        {% if r.task.team %} · {{ r.task.team.name }}{% endif %}
+                    </span>
+                </td>
+
+                <td data-label="Done by">
+                    {% if r.task.assignee %}
+                        <div class="person">
+                            <span class="avatar">{{ r.task.assignee|initials }}</span>
+                            <span class="person-text">
+                                <span class="person-name">{{ r.task.assignee.get_full_name|default:r.task.assignee.username }}</span>
+                            </span>
+                        </div>
+                    {% else %}
+                        <span class="dim">Unassigned</span>
+                    {% endif %}
+                </td>
+
+                <td data-label="Signed off by">
+                    {% if r.signed_off_by %}
+                        {{ r.signed_off_by.get_full_name|default:r.signed_off_by.username }}
+                    {% else %}
+                        <span class="dim">-</span>
+                    {% endif %}
+                </td>
+
+                <td data-label="Work" class="num">
+                    {% if r.task.staff_hours != None %}{{ r.task.staff_hours }}h{% else %}<span class="dim">-</span>{% endif %}
+                </td>
+                <td data-label="Review" class="num">
+                    {% if r.task.review_hours != None %}{{ r.task.review_hours }}h{% else %}<span class="dim">-</span>{% endif %}
+                </td>
+                <td data-label="Total" class="num">{{ r.total_hours }}h</td>
+
+                <td data-label="Against target">
+                    {% if r.task.finished_late %}
+                        <span class="due due--late">Late</span>
+                    {% else %}
+                        <span class="due due--ok">On time</span>
+                    {% endif %}
+                </td>
+
+                <td data-label="Files" class="num">
+                    {% if r.attachment_count %}
+                        <span class="tag tag--quiet" title="{% for a in r.attachments %}{{ a.original_name }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+                            <i class="ri-attachment-2"></i> {{ r.attachment_count }}
+                        </span>
+                    {% else %}
+                        <span class="dim">-</span>
+                    {% endif %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="9">
+                    <div class="empty">
+                        <p class="empty-title">Nothing was completed</p>
+                        <p class="empty-sub">
+                            {% if pending_count %}
+                                Work was handed in, but none of it has been signed off yet.
+                            {% else %}
+                                No task reached final sign-off in this period.
+                            {% endif %}
+                        </p>
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% include 'portal/_pagination.html' %}
+
+{% endblock %}

@@ -24,6 +24,11 @@ psycopg[binary]==3.2.10
 # permission check in portal.views.attachment_download.
 whitenoise==6.11.0
 
+# Writes the day report's Excel export. A .xlsx rather than a CSV because
+# Excel reads a CSV's dates and hours as text, which is what makes columns
+# show ##### until each one is widened by hand.
+openpyxl==3.1.5
+
 # The WSGI server. Django's runserver is a development server and must never
 # face real traffic. Gunicorn does not run on Windows; waitress does, and is
 # what NSSM should be pointed at.

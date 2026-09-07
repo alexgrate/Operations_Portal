@@ -23,8 +23,6 @@ def paginate(request, items, per_page=None):
     except EmptyPage:
         page = paginator.page(paginator.num_pages)
 
-    # Everything except the page number, so filters and searches survive a
-    # click on "Next".
     params = request.GET.copy()
     params.pop('page', None)
     querystring = params.urlencode()

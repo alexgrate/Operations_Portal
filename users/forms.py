@@ -1,7 +1,10 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from .models import CORPORATE_DOMAIN, ROLE_ADMIN, Profile, Team, assignable_roles
+from .models import (
+    AUDITOR_TEAMS_ERROR, CORPORATE_DOMAIN, ROLE_ADMIN, ROLE_AUDITOR, Profile, Team,
+    assignable_roles,
+)
 
 
 class StaffForm(forms.Form):
@@ -28,8 +31,6 @@ class StaffForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.instance = instance
         if actor is not None:
-            # Only roles below the actor's own; the ChoiceField then rejects
-            # anything else on POST, not just in the rendered dropdown.
             self.fields['role'].choices = assignable_roles(actor)
         if instance is not None:
             self.fields['full_name'].initial = instance.get_full_name()
@@ -58,6 +59,12 @@ class StaffForm(forms.Form):
         if not name:
             raise forms.ValidationError('Please enter their full name.')
         return name
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('role') == ROLE_AUDITOR and cleaned.get('teams'):
+            self.add_error('teams', AUDITOR_TEAMS_ERROR)
+        return cleaned
 
     def save(self):
         email = self.cleaned_data['email']
@@ -94,7 +101,11 @@ def _operational(people):
     Both exclusions are needed: the role covers an Admin who is not a
     superuser, is_superuser covers a superuser whose role was later changed.
     """
-    return people.exclude(profile__role=ROLE_ADMIN).exclude(is_superuser=True)
+    return (
+        people
+        .exclude(profile__role__in=[ROLE_ADMIN, ROLE_AUDITOR])
+        .exclude(is_superuser=True)
+    )
 
 
 class _PersonLabel:
@@ -138,11 +149,7 @@ class TeamForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # limit_choices_to on the model already restricts the lead dropdown to
-        # active leadership accounts, but LEADERSHIP_ROLES includes Admin.
-        # Drop those here - see _operational. Whoever already leads this team
-        # stays selectable, or editing its name would fail validation on a
-        # field the page was not offering to change.
+
         leads = _operational(self.fields['lead'].queryset)
         if self.instance.pk and self.instance.lead_id:
             leads = leads | self.fields['lead'].queryset.filter(pk=self.instance.lead_id)
@@ -154,14 +161,6 @@ class TeamForm(forms.ModelForm):
 
         members = _operational(User.objects.filter(is_active=True))
 
-        # An admin already sitting in this team stays listed. Hiding a current
-        # member would not merely omit the row: save() below removes everybody
-        # left unticked, so they would be dropped from the team silently by an
-        # edit that never mentioned them.
-        #
-        # Deliberately still active-only, which leaves deactivated members
-        # behaving exactly as they did before: this guard exists to cover the
-        # people the filter above newly hides, and nobody else.
         if self.instance.pk:
             current = User.objects.filter(profile__teams=self.instance)
             members = members | current.filter(is_active=True)
@@ -187,9 +186,6 @@ class TeamForm(forms.ModelForm):
 
         members = set(self.cleaned_data['members'])
 
-        # The lead goes in whether or not they were ticked. A lead who is not a
-        # member cannot be assigned work in their own team, because the task
-        # form checks the assignee belongs to the chosen team.
         members.add(team.lead)
 
         for person in members:

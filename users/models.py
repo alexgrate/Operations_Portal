@@ -11,17 +11,27 @@ ROLE_ADMIN = 'admin'
 ROLE_DEPT_HEAD = 'dept_head'
 ROLE_TEAM_LEAD = 'team_lead'
 ROLE_STAFF = 'staff'
+ROLE_AUDITOR = 'auditor'
 
 ROLE_CHOICES = [
     (ROLE_ADMIN, 'Admin'),
     (ROLE_DEPT_HEAD, 'Department Head'),
     (ROLE_TEAM_LEAD, 'Team Lead'),
     (ROLE_STAFF, 'Operations Staff'),
+    (ROLE_AUDITOR, 'Auditor'),
 ]
 
 LEADERSHIP_ROLES = [ROLE_TEAM_LEAD, ROLE_DEPT_HEAD, ROLE_ADMIN]
 
+# Auditor is deliberately absent from the ranking. It is a read-only observer
+# that sits outside the chain of command: it commands nobody, and nobody but
+# an Admin commands it - see can_manage.
 ROLE_RANK = {ROLE_STAFF: 0, ROLE_TEAM_LEAD: 1, ROLE_DEPT_HEAD: 2, ROLE_ADMIN: 3}
+
+
+def _rank(role):
+    """Position in the chain of command. -1 means "not in the chain at all"."""
+    return ROLE_RANK.get(role, -1)
 
 
 def _role_of(user):
@@ -37,21 +47,49 @@ def can_manage(actor, target):
     form. Admins are the exception: they manage everyone (including other
     admins), because the top rank has no one above it to do so.
     """
-    if _role_of(actor) == ROLE_ADMIN:
+    actor_role, target_role = _role_of(actor), _role_of(target)
+
+    if actor_role == ROLE_ADMIN:
         return True
-    return ROLE_RANK[_role_of(actor)] > ROLE_RANK[_role_of(target)]
+
+    # An Auditor manages nobody, and only an Admin manages an Auditor.
+    # Otherwise the lead or head being audited could deactivate the person
+    # auditing them, which is the whole point of the role.
+    if ROLE_AUDITOR in (actor_role, target_role):
+        return False
+
+    return _rank(actor_role) > _rank(target_role)
 
 
 def assignable_roles(actor):
     """Role choices the actor may hand out: strictly below their own rank.
 
-    Admins can assign every role, including Admin - appointing a second
-    admin must not require falling back to the Django superuser.
+    Admins can assign every role, including Admin and Auditor - appointing a
+    second admin must not require falling back to the Django superuser, and an
+    Auditor sees every team's work, so who becomes one is an Admin decision.
     """
     if _role_of(actor) == ROLE_ADMIN:
         return list(ROLE_CHOICES)
-    limit = ROLE_RANK[_role_of(actor)]
-    return [(role, label) for role, label in ROLE_CHOICES if ROLE_RANK[role] < limit]
+
+    limit = _rank(_role_of(actor))
+    return [
+        (role, label) for role, label in ROLE_CHOICES
+        if 0 <= _rank(role) < limit
+    ]
+
+
+def is_auditor(user):
+    return _role_of(user) == ROLE_AUDITOR
+
+
+# A team is who reviews your work. An Auditor has none to review, and the two
+# forms that set membership would disagree about the answer anyway: the team
+# form leaves auditors out of its member list, so editing that team afterwards
+# would quietly drop them again.
+AUDITOR_TEAMS_ERROR = (
+    'An Auditor watches every team and sits in none. '
+    'Untick the teams, or choose a different role.'
+)
 
 
 class Team(models.Model):
@@ -79,6 +117,7 @@ class Profile(models.Model):
     ROLE_DEPT_HEAD = ROLE_DEPT_HEAD
     ROLE_TEAM_LEAD = ROLE_TEAM_LEAD
     ROLE_STAFF = ROLE_STAFF
+    ROLE_AUDITOR = ROLE_AUDITOR
     ROLE_CHOICES = ROLE_CHOICES
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -86,8 +125,6 @@ class Profile(models.Model):
     teams = models.ManyToManyField(Team, blank=True, related_name='members')
     invite_sent_at = models.DateTimeField(null=True, blank=True)
 
-    # Last time this person was emailed a list of work waiting on their
-    # decision. Kept so the digest is rate limited per person, not per task.
     approval_digest_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):

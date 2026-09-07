@@ -1,9 +1,10 @@
-from datetime import timedelta
+import logging
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib import messages
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -13,13 +14,18 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
 
 from users.models import Profile, can_manage
 
 from . import approvals, notify, queues
 from .pagination import paginate
 from .forms import CommentForm, ProcessTypeForm, TaskForm, _apply_target_and_checklist
-from .models import Approval, Attachment, ProcessType, Task
+from .models import Approval, Attachment, AttachmentAccess, ProcessType, Task
+
+logger = logging.getLogger(__name__)
 
 
 def login_view(request):
@@ -69,6 +75,16 @@ def management_required(view_func):
     return wrapper
 
 
+def reporting_required(view_func):
+    """The read-only reporting pages: management, plus the Auditor role."""
+    def wrapper(request, *args, **kwargs):
+        if not queues.can_report(request.user):
+            messages.error(request, 'That area is for Team Leads and above.')
+            return redirect('portal-home')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
 def head_required(view_func):
     def wrapper(request, *args, **kwargs):
         if not queues.is_head(request.user):
@@ -81,6 +97,10 @@ def head_required(view_func):
 @login_required
 def home(request):
     """Land on the queue that most likely needs this person."""
+    # An auditor has no queues at all - their landing page is the day report.
+    if queues.is_auditor(request.user):
+        return redirect('portal-day')
+
     if queues.awaiting_me(request.user).exists():
         return redirect('queue', key='awaiting')
     return redirect('queue', key='my-work')
@@ -145,12 +165,18 @@ def task_detail(request, pk, form=None):
         'can_edit': approvals.can_edit(request.user, task),
         'editable': approvals.editable_fields(request.user, task),
         'can_start': approvals.can_start(request.user, task),
+        # Auditors read every task and write to none of them: this hides the
+        # two boxes that are not already gated by a can_* flag.
+        'read_only': queues.is_auditor(request.user),
     })
 
 
 @login_required
 @require_POST
 def task_create(request):
+    if queues.is_auditor(request.user):
+        raise PermissionDenied
+
     form = TaskForm(request.POST, user=request.user)
     if form.is_valid():
         task = form.save(commit=False)
@@ -203,9 +229,6 @@ def task_update(request, pk):
 
     task = form.save(commit=False)
 
-    # A different process type means a different target and a different
-    # checklist. Leaving the old ones behind produces a task whose deadline and
-    # checklist disagree with its own rules.
     if task.process_type_id != was_process:
         task.checklist_snapshot = list(task.process_type.checklist or [])
         task.checklist_done = {}
@@ -214,12 +237,10 @@ def task_update(request, pk):
 
     task.save()
 
-    # Only when the work moved onto somebody new. An unrelated edit is not
-    # news for anybody.
+
     if task.assignee_id and task.assignee_id != was_assignee:
         notify.assigned(task, request.user)
     elif not task.assignee_id and (task.team_id != was_team or was_assignee):
-        # Newly ownerless, or moved to a team that has not picked it up yet.
         notify.handed_to_team(task, request.user)
 
     messages.success(request, 'Task updated.')
@@ -358,7 +379,7 @@ def task_return(request, pk):
 def attachment_upload(request, pk):
     """Attach one or more files to a task."""
     task = get_object_or_404(Task, pk=pk)
-    if not queues.can_see_task(request.user, task):
+    if not queues.can_see_task(request.user, task) or queues.is_auditor(request.user):
         raise PermissionDenied
 
     files = request.FILES.getlist('files')
@@ -398,6 +419,19 @@ def attachment_download(request, pk):
     if not queues.can_see_task(request.user, attachment.task):
         raise PermissionDenied
 
+    try:
+        AttachmentAccess.objects.create(
+            attachment=attachment,
+            task=attachment.task,
+            user=request.user,
+            file_name=attachment.original_name,
+        )
+    except Exception:
+        # An unwritable log must never stop somebody reading a document they
+        # are entitled to. Losing the record is bad; a 500 on every download
+        # is worse, so it is recorded here and the file still goes out.
+        logger.exception('Could not record attachment access for %s', attachment.pk)
+
     # inline lets images preview; everything else the browser will offer to save
     return FileResponse(
         attachment.file.open('rb'),
@@ -426,7 +460,7 @@ def attachment_delete(request, pk):
 @require_POST
 def comment_create(request, pk):
     task = get_object_or_404(Task, pk=pk)
-    if not queues.can_see_task(request.user, task):
+    if not queues.can_see_task(request.user, task) or queues.is_auditor(request.user):
         raise PermissionDenied
 
     form = CommentForm(request.POST)
@@ -512,7 +546,7 @@ def process_type_delete(request, pk):
 
 
 @login_required
-@management_required
+@reporting_required
 def analytics_view(request):
     tasks = list(Task.objects.select_related('process_type', 'assignee', 'team'))
     done = [t for t in tasks if t.completed_at]
@@ -522,8 +556,6 @@ def analytics_view(request):
         clean = [v for v in values if v is not None]
         return round(sum(clean) / len(clean), 1) if clean else None
 
-    # Two clocks, kept apart. One number would hide whether the delay was the
-    # work or the sign-off, which is the whole question.
     avg_staff_hours = mean([t.staff_hours for t in done])
     avg_review_hours = mean([t.review_hours for t in done])
     avg_hours = mean([
@@ -575,6 +607,251 @@ def analytics_view(request):
             lambda t: (t.assignee.get_full_name() or t.assignee.get_username())
             if t.assignee else 'Unassigned'
         ),
+    })
+
+
+# --- the day report ---------------------------------------------------------
+#
+# What was completed, by whom, on a given day - the view an auditor checks
+# against the list Ncube handed the operations team that morning.
+
+REPORT_MAX_DAYS = 366
+
+
+def _report_window(request):
+    """The dates being reported on, read from the query string.
+
+    Dates are read and shown in the portal's own timezone (Africa/Lagos unless
+    DJANGO_TIME_ZONE says otherwise) while the timestamps they filter are
+    stored in UTC. A day here therefore means a working day in Lagos - filter
+    on UTC days instead and an hour of every evening lands on the wrong date.
+    """
+    today = timezone.localdate()
+
+    def parse(value, fallback):
+        try:
+            return date.fromisoformat(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    preset = request.GET.get('preset', '')
+    if preset == 'today':
+        start = end = today
+    elif preset == 'yesterday':
+        start = end = today - timedelta(days=1)
+    elif preset == 'week':
+        start, end = today - timedelta(days=6), today
+    else:
+        start = parse(request.GET.get('from'), today)
+        end = parse(request.GET.get('to'), start)
+
+    if end < start:
+        start, end = end, start
+
+    capped = (end - start).days > REPORT_MAX_DAYS
+    if capped:
+        start = end - timedelta(days=REPORT_MAX_DAYS)
+
+    tz = timezone.get_current_timezone()
+    return {
+        'start': start,
+        'end': end,
+        'is_single_day': start == end,
+        'capped': capped,
+        # Half open: everything from midnight on the first day up to, but not
+        # including, midnight after the last one.
+        'begins': timezone.make_aware(datetime.combine(start, time.min), tz),
+        'ends': timezone.make_aware(datetime.combine(end + timedelta(days=1), time.min), tz),
+    }
+
+
+def _signed_off_by(task):
+    """Who gave the final approval. Approvals are ordered oldest first."""
+    for approval in reversed(list(task.approvals.all())):
+        if approval.decision == Approval.DECISION_APPROVED:
+            return approval.actor
+    return None
+
+
+def _report_rows(window):
+    completed = (
+        Task.objects
+        .select_related('process_type', 'assignee', 'team')
+        .prefetch_related('approvals__actor', 'attachments')
+        .filter(completed_at__gte=window['begins'], completed_at__lt=window['ends'])
+        .order_by('completed_at')
+    )
+
+    rows = []
+    for task in completed:
+        attachments = list(task.attachments.all())
+        rows.append({
+            'task': task,
+            'signed_off_by': _signed_off_by(task),
+            'attachments': attachments,
+            'attachment_count': len(attachments),
+            'total_hours': round(
+                (task.completed_at - task.work_started_from).total_seconds() / 3600, 1
+            ),
+        })
+    return rows
+
+
+def _local(value):
+    """A timezone-naive local datetime, which is the only kind Excel holds."""
+    return timezone.localtime(value).replace(tzinfo=None) if value else None
+
+
+# Header, and the column width in characters. Widths are set explicitly
+# because Excel shows ##### rather than shrinking anything that does not fit,
+# and a date column at the default width always overflows.
+REPORT_COLUMNS = [
+    ('Completed', 17),
+    ('Task', 44),
+    ('Process type', 22),
+    ('Done by', 22),
+    ('Team', 18),
+    ('Signed off by', 22),
+    ('Created', 17),
+    ('Started', 17),
+    ('Submitted', 17),
+    ('Deadline', 17),
+    ('Work hrs', 10),
+    ('Review hrs', 11),
+    ('Total hrs', 10),
+    ('On time', 9),
+    ('Files', 7),
+    ('File names', 38),
+    ('Link', 46),
+]
+
+DATE_FORMAT = 'yyyy-mm-dd hh:mm'
+HOURS_FORMAT = '0.0'
+XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+
+def _text(cell, value):
+    """Write a value as text, whatever it looks like.
+
+    Titles are typed by people, and openpyxl reads a leading = as the start of
+    a formula. Pinning the cell type keeps "=cmd|/c calc" a harmless string
+    rather than something Excel offers to run when the file is opened.
+    """
+    if value in (None, ''):
+        return
+    cell.value = str(value)
+    cell.data_type = 's'
+
+
+def _report_xlsx(request, window, rows):
+    span = str(window['start']) if window['is_single_day'] else (
+        f"{window['start']}-to-{window['end']}"
+    )
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = 'Completed'
+
+    for index, (heading, width) in enumerate(REPORT_COLUMNS, start=1):
+        cell = sheet.cell(row=1, column=index, value=heading)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(vertical='center')
+        sheet.column_dimensions[get_column_letter(index)].width = width
+
+    for line, row in enumerate(rows, start=2):
+        task = row['task']
+        assignee, signer = task.assignee, row['signed_off_by']
+
+        def at(column, value=None):
+            return sheet.cell(row=line, column=column, value=value)
+
+        for column, when in (
+            (1, task.completed_at), (7, task.created_at), (8, task.started_at),
+            (9, task.submitted_at), (10, task.deadline),
+        ):
+            cell = at(column, _local(when))
+            cell.number_format = DATE_FORMAT
+
+        _text(at(2), task.title)
+        _text(at(3), task.process_type.name)
+        _text(at(4), assignee.get_full_name() or assignee.get_username() if assignee else '')
+        _text(at(5), task.team.name if task.team else '')
+        _text(at(6), signer.get_full_name() or signer.get_username() if signer else '')
+
+        for column, hours in (
+            (11, task.staff_hours), (12, task.review_hours), (13, row['total_hours']),
+        ):
+            cell = at(column, hours)
+            cell.number_format = HOURS_FORMAT
+
+        _text(at(14), 'No' if task.finished_late else 'Yes')
+        at(15, row['attachment_count'])
+
+        # The documents themselves stay in the portal, behind the permission
+        # check in attachment_download. The sheet carries proof that they
+        # exist and a link back to where they can be read.
+        _text(at(16), '; '.join(a.original_name for a in row['attachments']))
+
+        link = request.build_absolute_uri(reverse('task-detail', args=[task.pk]))
+        cell = at(17)
+        _text(cell, link)
+        cell.hyperlink = link
+        cell.style = 'Hyperlink'
+
+    sheet.freeze_panes = 'A2'
+    sheet.auto_filter.ref = (
+        f'A1:{get_column_letter(len(REPORT_COLUMNS))}{max(len(rows) + 1, 1)}'
+    )
+
+    response = HttpResponse(content_type=XLSX_TYPE)
+    response['Content-Disposition'] = f'attachment; filename="completed-{span}.xlsx"'
+    book.save(response)
+    return response
+
+
+@login_required
+@reporting_required
+def day_report(request):
+    window = _report_window(request)
+    rows = _report_rows(window)
+
+    if request.GET.get('export') == 'xlsx':
+        return _report_xlsx(request, window, rows)
+
+    if window['capped']:
+        messages.info(
+            request,
+            f'A range covers at most {REPORT_MAX_DAYS} days, so this starts at '
+            f'{window["start"]:%d %b %Y}.',
+        )
+
+    # Handed in during the window and still unsigned. Without this a day whose
+    # reviewer had not got to the work yet reads as a day nothing was done.
+    pending = Task.objects.filter(
+        submitted_at__gte=window['begins'],
+        submitted_at__lt=window['ends'],
+        completed_at__isnull=True,
+        archived_at__isnull=True,
+    ).count()
+
+    late = sum(1 for r in rows if r['task'].finished_late)
+    hours = [r['total_hours'] for r in rows]
+    people = {r['task'].assignee_id for r in rows if r['task'].assignee_id}
+
+    page = paginate(request, rows)
+
+    return render(request, 'portal/day.html', {
+        'active_tab': 'day',
+        'window': window,
+        'rows': page['items'],
+        **page,
+        'completed_count': len(rows),
+        'late_count': late,
+        'on_time_count': len(rows) - late,
+        'people_count': len(people),
+        'avg_hours': round(sum(hours) / len(hours), 1) if hours else None,
+        'pending_count': pending,
+        'export_query': request.GET.urlencode(),
     })
 
 

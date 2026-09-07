@@ -102,9 +102,7 @@ def _interval_due(task, now):
 def _overdue_due(task, now):
     """Past the deadline the pace drops right down. Chasing hourly does not
     make late work finish sooner; it just trains people to ignore the sender."""
-    # Count from whichever came last: the deadline, the final warning, or the
-    # last routine chase. Counting from the deadline alone means a task that is
-    # already days late gets its final warning and a chase in the same minute.
+
     stamps = [task.deadline, task.final_warning_at, task.reminder_sent_at]
     since = max(stamp for stamp in stamps if stamp)
     return (now - since).total_seconds() / 60 >= settings.REMINDER_OVERDUE_EVERY_MINUTES
@@ -126,16 +124,13 @@ def due_kind(task, now=None):
     if not task.final_warning_at and left <= settings.REMINDER_FINAL_MINUTES:
         return FINAL
 
-    # Quiet hours hold back routine chasing only. The final warning above
-    # ignores them, which is the whole point of it.
+
     if not in_reminder_hours(now):
         return None
 
     if left <= 0:
         return REMINDER if _overdue_due(task, now) else None
 
-    # The final warning is the last word before the deadline. A routine
-    # reminder after it would land minutes later saying the same thing.
     if task.final_warning_at:
         return None
 

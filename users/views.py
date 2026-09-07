@@ -59,8 +59,7 @@ def staff_create(request):
                     f'{user.get_full_name()} added. Invite sent to {user.email}.',
                 )
             except Exception:
-                # The account exists either way. invite_sent_at stays empty, so
-                # the staff list shows "Not invited" with a Send invite button.
+
                 messages.warning(
                     request,
                     f'{user.get_full_name()} was added, but the invite could not be '

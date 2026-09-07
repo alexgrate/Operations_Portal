@@ -84,6 +84,18 @@ back with a reason, which returns it to the assignee with the history intact.
 | Team Lead | The above, plus sign off their team's work, onboard staff, manage teams and the catalog |
 | Department Head | The above across every team, plus final sign-off |
 | Admin | Everything, plus the Django admin |
+| Auditor | Read every team's work, the day report and analytics. Changes nothing |
+
+**Who may manage whom.** Staff management runs strictly down the ranks above:
+a Team Lead manages Operations Staff, a Department Head manages Team Leads and
+below, and only an Admin manages another Admin - or an Auditor. The role you
+may hand out is likewise capped by your own, so nobody promotes themselves
+through the edit form.
+
+The Auditor sits outside that chain entirely. It carries no work, appears in no
+assignee or team picker, and has no queues; its landing page is the day report.
+Only an Admin can appoint or deactivate one, so the leads and heads an auditor
+is watching cannot switch off the oversight.
 
 ### Two rules worth knowing before you change anything
 
@@ -211,6 +223,7 @@ copied out of the console, and nothing real is sent by accident.
 | `/app/catalog/` | Process catalog, editable by management |
 | `/app/staff/` | Onboard, edit, resend invite, deactivate |
 | `/app/teams/` | Create, edit, retire teams |
+| `/app/day/` | Day report: what was completed, by whom, with an Excel export |
 | `/app/analytics/` | Turnaround and volume, split by the two clocks |
 | `/app/files/<id>/` | Attachment download, permission-checked |
 | `/admin/` | Django admin |
@@ -237,6 +250,34 @@ guessing a URL.
 Every download goes through `portal.views.attachment_download`, which checks who
 is asking. Adding `static()`/`MEDIA_URL` serving for that path would put
 customer documents on the open internet.
+
+Every successful download writes an `AttachmentAccess` row - who opened which
+file, and when - readable in the Django admin and never editable there. The row
+keeps a copy of the file name and survives both the document being deleted and
+the account being removed, so the trail outlives what it describes.
+
+The day report's export carries attachment **names and counts, never the files
+themselves**. A ZIP of customer documents would leave the permission check
+behind for good; the sheet links back to the task instead, where the check
+still applies.
+
+### The day report
+
+`/app/day/` answers "what did the department finish, and who did it" for a
+single day (the default) or a range. It lists only work that reached final
+sign-off in the window, because that is the honest definition of done - with a
+note above the table counting anything handed in but still unsigned, so a day
+whose reviewer is behind does not read as a day nothing happened.
+
+Days are Lagos days. The timestamps are stored in UTC, so filtering on UTC
+dates would file an hour of every evening under the wrong day.
+
+**The export is a real `.xlsx`, not a CSV.** In a CSV every column arrives as
+text: dates cannot be sorted, hours cannot be summed, and Excel shows `#####`
+on anything too narrow until each column is widened by hand. The workbook
+writes dates as dates, hours as numbers, sets the column widths, freezes the
+header and turns on the filter row. A title beginning with `=` is pinned to
+text so Excel cannot read it as a formula.
 
 ---
 
@@ -287,7 +328,7 @@ database, the routes, the queue, and whether historical sign-offs still render.
 ## Icons
 
 Remix Icon is vendored in `portal/static/vendor/remixicon/`, subset to only the
-icons this app uses: 2.5 KB of font instead of 185 KB, and no external request.
+icons this app uses: 2.8 KB of font instead of 185 KB, and no external request.
 
 It used to load from a CDN. On any network that blocks external hosts, which
 is most corporate ones, every icon in the portal disappeared.

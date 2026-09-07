@@ -2,7 +2,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from users.models import ROLE_ADMIN, Team
+from users.models import ROLE_ADMIN, ROLE_AUDITOR, Team
 
 from .models import Comment, ProcessType, Task
 
@@ -21,7 +21,6 @@ class TaskForm(forms.ModelForm):
 
     class Meta:
         model = Task
-        # `team` decides which lead reviews the work, so it is required.
         fields = ['title', 'process_type', 'assignee', 'team', 'notes']
         widgets = {
             'title': forms.TextInput(attrs={'placeholder': 'e.g. KYC review - Damola J'}),
@@ -36,22 +35,12 @@ class TaskForm(forms.ModelForm):
         self.fields['team'].required = True
         self.fields['team'].empty_label = 'Choose a team…'
 
-        # Admins are deliberately not assignable. is_dept_head() counts the
-        # Admin role and any superuser as a head, so effective_stages() drops
-        # the head sign-off for an admin assignee: a "Department Head only"
-        # task assigned to one is approved the moment it is submitted, with an
-        # empty approval chain. That exemption belongs to the Department Head,
-        # who has nobody above them. Admin is a setup account and inherited it
-        # by accident.
         assignable = (
             User.objects.filter(is_active=True)
-            .exclude(profile__role=ROLE_ADMIN)
+            .exclude(profile__role__in=[ROLE_ADMIN, ROLE_AUDITOR])
             .exclude(is_superuser=True)
         )
 
-        # An admin already holding a task stays selectable on that task's own
-        # form. Without this, editing anything else about it fails validation
-        # on a field the page was not offering to change.
         current = getattr(self.instance, 'assignee_id', None)
         if current:
             assignable = assignable | User.objects.filter(pk=current)
@@ -61,9 +50,6 @@ class TaskForm(forms.ModelForm):
         )
 
 
-        # Locked fields are disabled rather than removed. Django ignores posted
-        # data for a disabled field and keeps the initial value, so a crafted
-        # POST cannot change what the page would not let you change.
         if editable is not None:
             for name, field in self.fields.items():
                 if name not in editable:
@@ -71,10 +57,6 @@ class TaskForm(forms.ModelForm):
 
         self.fields['team'].queryset = Team.objects.filter(is_active=True)
 
-        # Staff put their own name on their own team's work. They may still
-        # send work to another team, but they do not get to pick who in that
-        # team does it - see clean(). Choosing someone else's workload for
-        # them is the team lead's job.
         if user is not None and not _is_management(user):
             self.fields['assignee'].queryset = self.fields['assignee'].queryset.filter(pk=user.pk)
             self.fields['assignee'].initial = user
@@ -86,7 +68,6 @@ class TaskForm(forms.ModelForm):
         if not team:
             return cleaned
 
-        # The reviewer is the team's lead, so the assignee has to be in it.
         if assignee:
             in_team = team.members.filter(user=assignee).exists()
             if not in_team and team.lead_id != assignee.id:
@@ -95,8 +76,6 @@ class TaskForm(forms.ModelForm):
                     f'{assignee.get_full_name() or assignee.username} is not in {team.name}.',
                 )
 
-        # Work sent to a team the raiser is not in arrives unowned, so that
-        # team's lead decides who picks it up.
         if (self.user is not None
                 and not _is_management(self.user)
                 and assignee
@@ -128,8 +107,6 @@ class ProcessTypeForm(forms.ModelForm):
 
     class Meta:
         model = ProcessType
-        # requires_authorisation is deliberately absent: the permission gate
-        # was withdrawn after the demo. See approvals.opening_stage.
         fields = ['name', 'approval_level']
         widgets = {
             'name': forms.TextInput(attrs={'placeholder': 'e.g. Account Opening - Retail'}),
@@ -138,9 +115,6 @@ class ProcessTypeForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
-            # Only target_hours is stored, so show it back in the largest unit
-            # that divides cleanly. Without this a "1 day" target re-opens as
-            # "24 hours" and retyping 1 silently makes it a 1 hour target.
             hours = self.instance.target_hours or 0
             if hours >= 24 and hours % 24 == 0:
                 value, unit = hours / 24, 'days'

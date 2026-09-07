@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
 
-from users.models import ROLE_ADMIN
+from users.models import ROLE_ADMIN, ROLE_AUDITOR
 
 
 class ProcessType(models.Model):
@@ -15,9 +15,6 @@ class ProcessType(models.Model):
     target_hours = models.FloatField()
     checklist = models.JSONField(default=list, blank=True)
 
-    # Every process needs a sign-off. There is deliberately no "none" option:
-    # nobody closes their own work, because a deadline is a standing incentive
-    # to mark something finished that is not.
     APPROVAL_LEAD = 'lead'
     APPROVAL_HEAD = 'head'
     APPROVAL_LEAD_HEAD = 'lead_head'
@@ -31,10 +28,6 @@ class ProcessType(models.Model):
         max_length=20, choices=APPROVAL_CHOICES, default=APPROVAL_LEAD,
     )
 
-    # Withdrawn after the demo and no longer read by anything that matters:
-    # Task.needs_authorisation returns False regardless. Kept as a column so
-    # the historical permission sign-offs on old tasks still make sense, and
-    # so reinstating the gate does not need a schema change.
     requires_authorisation = models.BooleanField(default=False, editable=False)
 
     class Meta:
@@ -58,11 +51,8 @@ class Task(models.Model):
     assignee = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='assigned_tasks',
-        # Mirrors TaskForm: an admin assignee has its head sign-off dropped by
-        # approvals.effective_stages(), so the Django admin must not offer one
-        # either. See the comment there.
         limit_choices_to=models.Q(is_active=True, is_superuser=False)
-        & ~models.Q(profile__role=ROLE_ADMIN),
+        & ~models.Q(profile__role__in=[ROLE_ADMIN, ROLE_AUDITOR]),
     )
 
     team = models.ForeignKey(
@@ -94,9 +84,6 @@ class Task(models.Model):
         related_name='authorised_tasks',
     )
 
-    # Written by the send_task_reminders command. Kept on the row rather than
-    # worked out on the fly so a restarted or repeated run cannot send the
-    # same reminder twice.
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
     reminders_sent = models.PositiveIntegerField(default=0)
     final_warning_at = models.DateTimeField(null=True, blank=True)
@@ -124,9 +111,6 @@ class Task(models.Model):
         max_length=20, choices=STAGE_CHOICES, default=STAGE_DRAFT,
     )
 
-    # When the task arrived at the stage it is in now. Maintained in save().
-    # The approval digests use it to tell a manager what is new since the last
-    # one, rather than listing the same queue over and over.
     stage_since = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -150,7 +134,6 @@ class Task(models.Model):
             self.stage_since = now
         elif self.approval_stage != self._stage_on_load:
             self.stage_since = now
-            # A partial save would otherwise drop the change on the floor.
             if kwargs.get('update_fields'):
                 kwargs['update_fields'] = [*kwargs['update_fields'], 'stage_since']
 
@@ -227,12 +210,6 @@ class Task(models.Model):
         return bool(
             self.completed_at and self.deadline and self.completed_at > self.deadline
         )
-
-    # --- the two clocks -----------------------------------------------------
-    #
-    # A task's turnaround is two separate obligations: getting the work done
-    # and handed in, then getting it signed off. Rolling them into one number
-    # blames whoever was assigned for however long their manager sat on it.
 
     @property
     def work_started_from(self):
@@ -423,3 +400,36 @@ class Comment(models.Model):
 
     def __str__(self):
         return f'{self.author} on {self.task}'
+
+
+class AttachmentAccess(models.Model):
+    """One record of somebody opening a document.
+
+    Written on every successful download, so "who read that customer's file"
+    has an answer. The row outlives both the file and the account: the file
+    name is copied onto it, and the two foreign keys go null rather than
+    taking the trail with them.
+    """
+
+    attachment = models.ForeignKey(
+        Attachment, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='accesses',
+    )
+    task = models.ForeignKey(
+        Task, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attachment_accesses',
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attachment_accesses',
+    )
+    file_name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'attachment accesses'
+
+    def __str__(self):
+        who = self.user.get_full_name() if self.user else 'Former user'
+        return f'{who} opened {self.file_name}'

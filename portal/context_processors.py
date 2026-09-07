@@ -18,5 +18,7 @@ def sidebar(request):
         'sidebar_queues': items,
         'is_management': queues.is_management(user),
         'is_head': queues.is_head(user),
+        'is_auditor': queues.is_auditor(user),
+        'can_report': queues.can_report(user),
         'asset_version': settings.ASSET_VERSION,
     }

@@ -27,7 +27,7 @@
         </div>
 
         <nav class="nav">
-            <p class="nav-heading">Work</p>
+            {% if sidebar_queues %}<p class="nav-heading">Work</p>{% endif %}
             {% for q in sidebar_queues %}
                 <a class="nav-item {% if queue_key == q.key %}is-active{% endif %}"
                    href="{% url 'queue' key=q.key %}">
@@ -50,6 +50,12 @@
                 <a class="nav-item {% if active_tab == 'teams' %}is-active{% endif %}"
                    href="{% url 'portal-teams' %}">
                     <i class="ri-organization-chart"></i><span class="nav-label">Teams</span>
+                </a>
+            {% endif %}
+            {% if can_report %}
+                <a class="nav-item {% if active_tab == 'day' %}is-active{% endif %}"
+                   href="{% url 'portal-day' %}">
+                    <i class="ri-calendar-check-line"></i><span class="nav-label">Day report</span>
                 </a>
                 <a class="nav-item {% if active_tab == 'analytics' %}is-active{% endif %}"
                    href="{% url 'portal-analytics' %}">

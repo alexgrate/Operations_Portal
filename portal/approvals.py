@@ -166,7 +166,6 @@ def editable_fields(user, task):
     management = _is_management(user)
 
     if task.approval_stage in Task.IN_REVIEW:
-        # Handed in. A manager may still re-route it; nobody rewrites it.
         return {'assignee', 'team'} if management else set()
 
     fields = set()
@@ -175,8 +174,6 @@ def editable_fields(user, task):
 
     if management:
         fields |= {'assignee', 'team'}
-        # The process type sets the deadline, the checklist and who signs off.
-        # Once work has started all three are in flight, so it stops moving.
         if not task.started_at:
             fields.add('process_type')
 
@@ -229,11 +226,6 @@ def stage_on_submit(task):
         return Task.STAGE_LEAD_REVIEW
     if Approval.STAGE_HEAD in remaining:
         return Task.STAGE_HEAD_REVIEW
-
-    # Every stage this task needed was one the assignee would have been
-    # signing for themselves. A Team Lead still answers to the Department
-    # Head, so their work goes up rather than closing. The Head answers to
-    # nobody inside this system, which is the only case that closes on submit.
     if _is_head(task.assignee):
         return Task.STAGE_APPROVED
     return Task.STAGE_HEAD_REVIEW
@@ -297,8 +289,6 @@ def send_back(task, actor, comment):
     task.approval_stage = Task.STAGE_RETURNED
     task.submitted_at = None
     task.completed_at = None
-
-    # The work is starting again, so the reminder allowance starts again too.
     task.reminders_sent = 0
     task.reminder_sent_at = None
 

@@ -1,4 +1,4 @@
-/* Remix Icon 4.9.0, subset to the 27 icons this portal uses.
+/* Remix Icon 4.9.0, subset to the 31 icons this portal uses.
    https://remixicon.com  Apache-2.0
 
    Vendored deliberately. Loaded from a CDN, every icon in the app vanished on
@@ -31,12 +31,15 @@
 .ri-add-line:before{content:"\ea13"}
 .ri-archive-line:before{content:"\ea48"}
 .ri-arrow-left-line:before{content:"\ea60"}
+.ri-attachment-2:before{content:"\ea84"}
 .ri-bar-chart-line:before{content:"\ea9e"}
 .ri-book-2-line:before{content:"\ead3"}
+.ri-calendar-check-line:before{content:"\eb23"}
 .ri-check-line:before{content:"\eb7b"}
 .ri-checkbox-circle-line:before{content:"\eb81"}
 .ri-close-line:before{content:"\eb99"}
 .ri-delete-bin-line:before{content:"\ec2a"}
+.ri-download-2-line:before{content:"\ec54"}
 .ri-eye-line:before{content:"\ecb5"}
 .ri-eye-off-line:before{content:"\ecb7"}
 .ri-file-3-line:before{content:"\ecc5"}
@@ -53,5 +56,6 @@
 .ri-settings-3-line:before{content:"\f0e6"}
 .ri-shield-check-line:before{content:"\f100"}
 .ri-team-line:before{content:"\f1ee"}
+.ri-time-line:before{content:"\f20f"}
 .ri-upload-2-line:before{content:"\f24a"}
 .ri-user-add-line:before{content:"\f25e"}
