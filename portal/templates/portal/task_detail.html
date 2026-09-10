@@ -2,7 +2,7 @@
 {% load portal_extras %}
 
 {% block title %}{{ task.title }} - Dash MFB{% endblock %}
-{% block heading %}<a class="back" href="{% url 'portal-home' %}"><i class="ri-arrow-left-line"></i></a> Task{% endblock %}
+{% block heading %}<a class="back" href="{{ back_url }}"><i class="ri-arrow-left-line"></i></a> Task{% endblock %}
 
 {% block content %}
 

@@ -1295,3 +1295,79 @@ class ListOrderTests(TestCase):
         response = self.client_for(self.head).get(reverse('portal-day'))
         self.assertEqual([row['task'].title for row in response.context['rows']],
                          ['Signed off at noon', 'Signed off at nine'])
+
+
+class BackFromATaskTests(TestCase):
+    """The task page returns you to the list you opened it from.
+
+    Its back arrow used to be a fixed link to home, which redirects to
+    whichever queue looks most urgent - so opening a task from Completed and
+    pressing back landed on My work.
+    """
+
+    def setUp(self):
+        self.head = make_user('back_head', Profile.ROLE_DEPT_HEAD, 'Chika')
+        self.lead = make_user('back_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        self.staff = make_user('back_staff', Profile.ROLE_STAFF, 'Tunde')
+        self.team = Team.objects.create(name='Back Team', lead=self.lead)
+        self.staff.profile.teams.add(self.team)
+        self.process = ProcessType.objects.create(name='Back Process', target_hours=8)
+        self.task = Task.objects.create(
+            title='Openable', process_type=self.process,
+            assignee=self.staff, team=self.team, created_by=self.lead,
+        )
+        self.client_ = self.client_class()
+        self.assertTrue(self.client_.login(username=self.head.email, password=PW))
+
+    def back_url_after(self, path):
+        self.client_.get(path)
+        response = self.client_.get(reverse('task-detail', args=[self.task.pk]))
+        return response.context['back_url']
+
+    def test_opened_from_completed_it_goes_back_to_completed(self):
+        completed = reverse('queue', args=['completed'])
+        self.assertEqual(self.back_url_after(completed), completed)
+
+    def test_opened_from_my_work_it_goes_back_to_my_work(self):
+        my_work = reverse('queue', args=['my-work'])
+        self.assertEqual(self.back_url_after(my_work), my_work)
+
+    def test_it_keeps_the_page_and_the_search_you_had(self):
+        listing = reverse('queue', args=['completed']) + '?q=transfer&page=3'
+        self.assertEqual(self.back_url_after(listing), listing)
+
+    def test_opened_from_the_day_report_it_goes_back_to_that_day(self):
+        day = reverse('portal-day') + '?from=2026-06-01&to=2026-06-30'
+        self.assertEqual(self.back_url_after(day), day)
+
+    def test_an_export_is_never_somewhere_to_go_back_to(self):
+        day = reverse('portal-day')
+        self.client_.get(day)
+        self.client_.get(day, {'export': 'xlsx'})
+
+        response = self.client_.get(reverse('task-detail', args=[self.task.pk]))
+        self.assertEqual(response.context['back_url'], day)
+
+    def test_a_task_opened_cold_falls_back_to_home(self):
+        fresh = self.client_class()
+        self.assertTrue(fresh.login(username=self.head.email, password=PW))
+
+        response = fresh.get(reverse('task-detail', args=[self.task.pk]))
+        self.assertEqual(response.context['back_url'], reverse('portal-home'))
+
+    def test_a_tampered_session_cannot_point_the_arrow_off_site(self):
+        session = self.client_.session
+        session['back_to'] = 'https://evil.example.com/phish'
+        session.save()
+
+        response = self.client_.get(reverse('task-detail', args=[self.task.pk]))
+        self.assertEqual(response.context['back_url'], reverse('portal-home'))
+
+    def test_commenting_does_not_lose_where_you_came_from(self):
+        completed = reverse('queue', args=['completed'])
+        self.client_.get(completed)
+        self.client_.post(reverse('comment-create', args=[self.task.pk]),
+                          {'body': 'Checked the paperwork.'})
+
+        response = self.client_.get(reverse('task-detail', args=[self.task.pk]))
+        self.assertEqual(response.context['back_url'], completed)

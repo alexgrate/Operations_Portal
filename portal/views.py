@@ -94,6 +94,31 @@ def head_required(view_func):
     return wrapper
 
 
+# The task page is opened from any of six queues and from the day report, and
+# from filtered or paginated views of either - so its back arrow cannot be a
+# fixed URL. Every list page leaves its own address here on the way past.
+LIST_PAGE_KEY = 'back_to'
+
+
+def _remember_list_page(request):
+    request.session[LIST_PAGE_KEY] = request.get_full_path()
+
+
+def _back_to_list(request):
+    """Where the task page's back arrow points.
+
+    The value was written by this site, but it is read back out of the
+    session and turned into a link, so it is checked like any other redirect
+    target rather than trusted.
+    """
+    target = request.session.get(LIST_PAGE_KEY)
+    if target and url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return target
+    return reverse('portal-home')
+
+
 @login_required
 def home(request):
     """Land on the queue that most likely needs this person."""
@@ -111,6 +136,8 @@ def queue_view(request, key):
     label, qs = queues.get_queue(key, request.user)
     if qs is None:
         raise PermissionDenied
+
+    _remember_list_page(request)
 
     search = request.GET.get('q', '').strip()
     if search:
@@ -175,6 +202,7 @@ def task_detail(request, pk, form=None):
         # Auditors read every task and write to none of them: this hides the
         # two boxes that are not already gated by a can_* flag.
         'read_only': queues.is_auditor(request.user),
+        'back_url': _back_to_list(request),
     })
 
 
@@ -826,6 +854,10 @@ def day_report(request):
 
     if request.GET.get('export') == 'xlsx':
         return _report_xlsx(request, window, rows)
+
+    # After the export branch: a spreadsheet download is not somewhere to
+    # send anybody back to.
+    _remember_list_page(request)
 
     if window['capped']:
         messages.info(
