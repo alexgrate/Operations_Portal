@@ -120,13 +120,20 @@ def queue_view(request, key):
     if process.isdigit():
         qs = qs.filter(process_type_id=process)
 
-    tasks = list(qs)
-    tasks.sort(key=lambda t: (
-        0 if t.urgency == 'overdue' else 1,
-        t.deadline or timezone.now() + timedelta(days=3650),
-    ))
-
-    page = paginate(request, tasks)
+    if key in queues.NEWEST_FIRST:
+        # Finished work reads newest first, and the database has already put
+        # it in that order - so the paginator can slice the query instead of
+        # every completed task being loaded to sort it on each page view.
+        page = paginate(request, qs)
+    else:
+        # Open work reads most urgent first. urgency is a property, not a
+        # column, so this sort has to happen in Python.
+        tasks = list(qs)
+        tasks.sort(key=lambda t: (
+            0 if t.urgency == 'overdue' else 1,
+            t.deadline or timezone.now() + timedelta(days=3650),
+        ))
+        page = paginate(request, tasks)
 
     return render(request, 'portal/queue.html', {
         'queue_key': key,
@@ -679,7 +686,9 @@ def _report_rows(window):
         .select_related('process_type', 'assignee', 'team')
         .prefetch_related('approvals__actor', 'attachments')
         .filter(completed_at__gte=window['begins'], completed_at__lt=window['ends'])
-        .order_by('completed_at')
+        # Newest first, so the latest sign-off is at the top of page one
+        # rather than at the end of the last page.
+        .order_by('-completed_at', '-pk')
     )
 
     rows = []

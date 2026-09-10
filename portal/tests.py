@@ -1198,3 +1198,100 @@ class UploadRulesTests(TestCase):
         self.assertNotIn('passwd', attachment.file.name)
         self.assertNotIn('..', attachment.file.name)
         self.assertTrue(attachment.file.name.endswith('.txt'))
+
+
+class ListOrderTests(TestCase):
+    """Finished work reads newest first. Open work reads most urgent first.
+
+    These sit here because the two rules pull in opposite directions and the
+    completed queue quietly got the wrong one: every finished task scores the
+    same on urgency, so the list fell back to deadline order and the newest
+    sign-offs ended up on the last page.
+    """
+
+    def setUp(self):
+        self.head = make_user('ord_head', Profile.ROLE_DEPT_HEAD, 'Chika')
+        self.lead = make_user('ord_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        self.staff = make_user('ord_staff', Profile.ROLE_STAFF, 'Tunde')
+        self.team = Team.objects.create(name='Order Team', lead=self.lead)
+        self.staff.profile.teams.add(self.team)
+        self.process = ProcessType.objects.create(name='Order Process', target_hours=8)
+
+    def client_for(self, user):
+        client = self.client_class()
+        self.assertTrue(client.login(username=user.email, password=PW))
+        return client
+
+    def make(self, title, **fields):
+        task = Task.objects.create(
+            title=title, process_type=self.process,
+            assignee=self.staff, team=self.team, created_by=self.lead,
+        )
+        if fields:
+            Task.objects.filter(pk=task.pk).update(**fields)
+        return Task.objects.get(pk=task.pk)
+
+    def titles_in(self, user, key):
+        response = self.client_for(user).get(reverse('queue', args=[key]))
+        self.assertEqual(response.status_code, 200)
+        return [task.title for task in response.context['tasks']]
+
+    def test_completed_shows_the_newest_sign_off_first(self):
+        now = timezone.now()
+        for title, ago in (('Oldest', 30), ('Middle', 10), ('Newest', 1)):
+            self.make(title, approval_stage=Task.STAGE_APPROVED,
+                      submitted_at=now - timedelta(days=ago, hours=1),
+                      completed_at=now - timedelta(days=ago))
+
+        self.assertEqual(self.titles_in(self.head, 'completed'),
+                         ['Newest', 'Middle', 'Oldest'])
+
+    def test_completed_ignores_the_deadline_it_used_to_sort_by(self):
+        """The old order. A task finished today but due long ago led the list."""
+        now = timezone.now()
+        self.make('Finished today, was due last year',
+                  approval_stage=Task.STAGE_APPROVED,
+                  completed_at=now, deadline=now - timedelta(days=365))
+        self.make('Finished last month, due next year',
+                  approval_stage=Task.STAGE_APPROVED,
+                  completed_at=now - timedelta(days=30),
+                  deadline=now + timedelta(days=365))
+
+        self.assertEqual(self.titles_in(self.head, 'completed')[0],
+                         'Finished today, was due last year')
+
+    def test_an_approved_task_with_no_completion_time_does_not_squat_at_the_top(self):
+        now = timezone.now()
+        self.make('Recorded properly', approval_stage=Task.STAGE_APPROVED,
+                  completed_at=now)
+        self.make('Legacy row', approval_stage=Task.STAGE_APPROVED,
+                  completed_at=None)
+
+        self.assertEqual(self.titles_in(self.head, 'completed'),
+                         ['Recorded properly', 'Legacy row'])
+
+    def test_archived_shows_the_most_recently_archived_first(self):
+        now = timezone.now()
+        self.make('Archived first', archived_at=now - timedelta(days=5))
+        self.make('Archived last', archived_at=now - timedelta(hours=1))
+
+        self.assertEqual(self.titles_in(self.head, 'archived'),
+                         ['Archived last', 'Archived first'])
+
+    def test_open_work_still_leads_with_the_most_urgent(self):
+        now = timezone.now()
+        self.make('Due next week', deadline=now + timedelta(days=7))
+        self.make('Overdue', deadline=now - timedelta(days=2))
+
+        self.assertEqual(self.titles_in(self.staff, 'my-work')[0], 'Overdue')
+
+    def test_the_day_report_leads_with_the_latest_sign_off(self):
+        now = timezone.now()
+        for title, minutes in (('Signed off at nine', 300), ('Signed off at noon', 60)):
+            self.make(title, approval_stage=Task.STAGE_APPROVED,
+                      submitted_at=now - timedelta(minutes=minutes + 30),
+                      completed_at=now - timedelta(minutes=minutes))
+
+        response = self.client_for(self.head).get(reverse('portal-day'))
+        self.assertEqual([row['task'].title for row in response.context['rows']],
+                         ['Signed off at noon', 'Signed off at nine'])

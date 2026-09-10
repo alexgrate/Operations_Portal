@@ -1,5 +1,5 @@
 """The work queues shown in the sidebar, and who may see each one."""
-from django.db.models import Q
+from django.db.models import F, Q
 
 from users.models import (
     LEADERSHIP_ROLES, ROLE_ADMIN, ROLE_AUDITOR, ROLE_DEPT_HEAD, ROLE_TEAM_LEAD,
@@ -58,7 +58,7 @@ def _archived_base():
 def archived(user):
     """Tidied away, kept for the record. Management only."""
     if is_management(user):
-        return _archived_base()
+        return _archived_base().order_by(F('archived_at').desc(nulls_last=True), '-pk')
     return _archived_base().none()
 
 
@@ -113,7 +113,22 @@ def my_team(user):
 
 
 def completed(user):
-    qs = _base().filter(approval_stage=Task.STAGE_APPROVED)
+    """Finished work, most recently signed off first.
+
+    Ordered here rather than in the view because the view sorts open work by
+    how close it is to its deadline, which says nothing about work that is
+    already done: every completed task scores the same, the list falls back to
+    deadline order, and the newest sign-offs end up on the last page.
+
+    nulls_last matters. Postgres sorts NULLs first on a descending column, so
+    any approved task from before completed_at was recorded would otherwise
+    sit at the top of the page for good.
+    """
+    qs = (
+        _base()
+        .filter(approval_stage=Task.STAGE_APPROVED)
+        .order_by(F('completed_at').desc(nulls_last=True), '-pk')
+    )
     if is_head(user):
         return qs
     if is_lead(user):
@@ -135,6 +150,11 @@ QUEUES = {
     'archived':  {'label': 'Archived',  'fn': archived,        'everyone': False,
                   'icon': 'ri-archive-line'},
 }
+
+
+# Queues holding finished work. They arrive from the database newest first,
+# and the view leaves that order alone.
+NEWEST_FIRST = {'completed', 'archived'}
 
 
 def visible_queues(user):
