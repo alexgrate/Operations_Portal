@@ -199,7 +199,7 @@ copied out of the console, and nothing real is sent by accident.
 | `DJANGO_DEBUG` | `True` | Turn off in production |
 | `DJANGO_TIME_ZONE` | `Africa/Lagos` | Display timezone; storage is always UTC |
 | `PAGE_SIZE` | `25` | Rows per page on every list |
-| `MAX_UPLOAD_MB` | `10` | Largest single attachment. **nginx caps bodies at 1 MB by default**, so raise `client_max_body_size` to match |
+| `MAX_UPLOAD_MB` | `10` | Largest single attachment. Keep it under the `maxAllowedContentLength` in [`deploy/web.config`](deploy/web.config) (50 MB), or IIS rejects the upload before Django can explain why |
 | `DJANGO_USE_PROXY_SSL_HEADER` | `False` | Required behind a load balancer, or the SSL redirect loops forever |
 | `DJANGO_SECURE_HSTS_SECONDS` | `0` | Start at `3600`, raise once HTTPS is proven on every subdomain |
 | `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS` | `False` | Only once every subdomain is HTTPS. Hard to undo |
@@ -242,7 +242,8 @@ Sessions expire after **15 minutes** of inactivity. Reset links last 3 hours.
 
 ### Attachments
 
-Multiple images or documents per task, up to `MAX_UPLOAD_MB` each. Stored under
+Multiple images, documents or saved emails (`.eml`) per task, up to
+`MAX_UPLOAD_MB` each. Stored under
 a random filename with the original kept on the row, so nothing can be found by
 guessing a URL.
 

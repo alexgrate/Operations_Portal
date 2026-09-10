@@ -6,6 +6,7 @@ import io
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -1122,3 +1123,78 @@ class DayReportTests(TestCase):
             reverse('portal-day'), {'from': 'yesterday-ish', 'to': ''},
         )
         self.assertEqual(response.context['window']['start'], timezone.localdate())
+
+
+class UploadRulesTests(TestCase):
+    """What may be attached, and how it comes back out."""
+
+    EMAIL = (
+        b'From: customer@example.com\r\n'
+        b'To: ops@dash-mfb.com\r\n'
+        b'Subject: Standing instruction\r\n\r\n'
+        b'Please action the transfer.\r\n'
+    )
+
+    def setUp(self):
+        self.lead = make_user('up_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        self.staff = make_user('up_staff', Profile.ROLE_STAFF, 'Tunde')
+        self.team = Team.objects.create(name='Upload Team', lead=self.lead)
+        self.process = ProcessType.objects.create(name='Upload Process', target_hours=4)
+        self.task = Task.objects.create(
+            title='Needs evidence', process_type=self.process,
+            assignee=self.staff, team=self.team, created_by=self.lead,
+        )
+        self.client_ = self.client_class()
+        self.assertTrue(self.client_.login(username=self.staff.email, password=PW))
+
+    def upload(self, name, content=b'x'):
+        response = self.client_.post(
+            reverse('attachment-upload', args=[self.task.pk]),
+            {'files': SimpleUploadedFile(name, content)},
+        )
+        for attachment in self.task.attachments.all():
+            self.addCleanup(attachment.file.delete, save=False)
+        return response
+
+    def test_a_saved_email_can_be_attached(self):
+        self.upload('instruction.eml', self.EMAIL)
+
+        attachment = self.task.attachments.get()
+        self.assertEqual(attachment.original_name, 'instruction.eml')
+        self.assertFalse(attachment.is_image)
+
+    def test_a_saved_email_is_handed_back_as_a_download(self):
+        """Never inline. A .eml is markup a browser would happily render."""
+        self.upload('instruction.eml', self.EMAIL)
+        attachment = self.task.attachments.get()
+
+        response = self.client_.get(reverse('attachment-download', args=[attachment.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment;', response['Content-Disposition'])
+        response.close()
+
+    def test_the_allowlist_refuses_everything_it_does_not_name(self):
+        for name in ('payload.exe', 'page.html', 'shell.php', 'chart.svg', 'notes.eml.exe'):
+            with self.subTest(name=name):
+                self.upload(name)
+                self.assertEqual(self.task.attachments.count(), 0, name)
+
+    def test_a_file_over_the_limit_is_refused(self):
+        oversized = b'x' * (settings.MAX_UPLOAD_BYTES + 1)
+        self.upload('huge.pdf', oversized)
+        self.assertEqual(self.task.attachments.count(), 0)
+
+    def test_the_stored_name_cannot_be_chosen_by_the_uploader(self):
+        """Two separate defences, and this pins both.
+
+        Django strips the directory part of an uploaded name, so the label we
+        keep is already harmless; and the name on disk is a fresh uuid, so
+        nothing is reachable by guessing a URL either way.
+        """
+        self.upload('../../etc/passwd.txt', b'not really')
+
+        attachment = self.task.attachments.get()
+        self.assertEqual(attachment.original_name, 'passwd.txt')
+        self.assertNotIn('passwd', attachment.file.name)
+        self.assertNotIn('..', attachment.file.name)
+        self.assertTrue(attachment.file.name.endswith('.txt'))

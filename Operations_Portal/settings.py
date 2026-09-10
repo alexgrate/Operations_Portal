@@ -353,9 +353,17 @@ USE_TZ = True
 MEDIA_ROOT = BASE_DIR / 'mediafiles'
 
 MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', '10')) * 1024 * 1024
+# An allowlist, so anything not named here is refused rather than having to be
+# thought of in advance. Note what is absent: .svg, which is a script the
+# browser will run if it is ever served inline, and every executable form.
 ALLOWED_UPLOAD_SUFFIXES = {
     '.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic',
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt',
+
+    # A saved email, kept as evidence of an instruction. Never served inline:
+    # attachment_download hands back everything but images as a download, so
+    # the browser saves it and a mail client opens it.
+    '.eml',
 }
 
 STATIC_URL = 'static/'
