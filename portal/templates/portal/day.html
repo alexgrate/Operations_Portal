@@ -79,7 +79,7 @@
         </thead>
         <tbody>
         {% for r in rows %}
-            <tr>
+            <tr id="task-{{ r.task.id }}" class="return-to">
                 <td data-label="Completed">
                     <span class="dim">{{ r.task.completed_at|date:"j M, H:i" }}</span>
                 </td>

@@ -18,6 +18,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
+from users import sso
 from users.models import Profile, can_manage
 
 from . import approvals, notify, queues
@@ -47,7 +48,13 @@ def login_view(request):
                 auth_login(request, user)
                 return redirect(_safe_next(request) or reverse('portal-home'))
 
-    return render(request, 'users/login.html', {'email': email})
+    return render(request, 'users/login.html', {
+        'email': email,
+        'sso_enabled': sso.is_enabled(),
+        # A failed password attempt reopens the form it came from, rather
+        # than hiding the error message's context behind the toggle.
+        'show_credentials': request.method == 'POST',
+    })
 
 
 def _safe_next(request):
@@ -199,6 +206,11 @@ def task_detail(request, pk, form=None):
         'can_edit': approvals.can_edit(request.user, task),
         'editable': approvals.editable_fields(request.user, task),
         'can_start': approvals.can_start(request.user, task),
+        'files_locked': approvals.files_locked(task),
+        # Beyond whoever uploaded it, only this task's reviewers may remove a file.
+        'can_remove_any_file': (
+            approvals.is_lead_of(request.user, task) or approvals.is_dept_head(request.user)
+        ),
         # Auditors read every task and write to none of them: this hides the
         # two boxes that are not already gated by a can_* flag.
         'read_only': queues.is_auditor(request.user),
@@ -297,9 +309,14 @@ def task_start(request, pk):
 @login_required
 @require_POST
 def task_checklist(request, pk):
-    """Tick or untick one checklist item."""
+    """Tick or untick one checklist item.
+
+    Only while the assignee could still submit it. Once handed in, the ticks
+    are what the reviewer is signing off, and once signed off they are the
+    record - neither may shift underneath.
+    """
     task = get_object_or_404(Task, pk=pk)
-    if task.assignee_id != request.user.id:
+    if not approvals.can_submit(request.user, task):
         raise PermissionDenied
 
     index = request.POST.get('index', '')
@@ -478,11 +495,19 @@ def attachment_download(request, pk):
 @login_required
 @require_POST
 def attachment_delete(request, pk):
-    attachment = get_object_or_404(Attachment.objects.select_related('task'), pk=pk)
+    attachment = get_object_or_404(
+        Attachment.objects.select_related('task', 'task__team'), pk=pk,
+    )
     task = attachment.task
 
-    # Whoever attached it, or management, can remove it.
-    if not (attachment.uploaded_by_id == request.user.id or queues.is_management(request.user)):
+    if approvals.files_locked(task):
+        messages.error(
+            request,
+            'Files cannot be removed once a task has been submitted for review or signed off.',
+        )
+        return redirect('task-detail', pk=task.pk)
+
+    if not approvals.can_remove_attachment(request.user, attachment):
         raise PermissionDenied
 
     attachment.file.delete(save=False)

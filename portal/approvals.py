@@ -184,6 +184,28 @@ def can_edit(user, task):
     return bool(editable_fields(user, task))
 
 
+def files_locked(task):
+    """Whether a task's files are now part of the record.
+
+    From the moment work is handed in, the attachments are the evidence the
+    reviewer is judging, and after sign-off they are what an auditor asks
+    for. Removing one then would quietly rewrite what was approved.
+    """
+    return not task.is_open or task.approval_stage not in (Task.STAGE_DRAFT, Task.STAGE_RETURNED)
+
+
+def can_remove_attachment(user, attachment):
+    """Whoever attached it, or someone who reviews this task, while it is still being worked."""
+    task = attachment.task
+    if files_locked(task):
+        return False
+    return bool(
+        attachment.uploaded_by_id == user.id
+        or is_lead_of(user, task)
+        or is_dept_head(user)
+    )
+
+
 def _is_management(user):
     from .queues import is_management
     return is_management(user)

@@ -2,7 +2,8 @@
 {% load portal_extras %}
 
 {% block title %}{{ task.title }} - Dash MFB{% endblock %}
-{% block heading %}<a class="back" href="{{ back_url }}"><i class="ri-arrow-left-line"></i></a> Task{% endblock %}
+{# Aimed at this task's own row, so going back lands where you were in the list, not at the top. #}
+{% block heading %}<a class="back" href="{{ back_url }}#task-{{ task.id }}"><i class="ri-arrow-left-line"></i></a> Task{% endblock %}
 
 {% block content %}
 
@@ -150,7 +151,7 @@
                                     </span>
                                 </span>
                             </a>
-                            {% if a.uploaded_by_id == user.id or is_management %}
+                            {% if not files_locked %}{% if a.uploaded_by_id == user.id or can_remove_any_file %}
                                 <form method="post" action="{% url 'attachment-delete' a.id %}"
                                       data-confirm-title="Remove {{ a.original_name }}?"
                                       data-confirm="The file is deleted permanently."
@@ -160,7 +161,7 @@
                                         <i class="ri-delete-bin-line"></i>
                                     </button>
                                 </form>
-                            {% endif %}
+                            {% endif %}{% endif %}
                         </div>
                     {% endfor %}
                 </div>

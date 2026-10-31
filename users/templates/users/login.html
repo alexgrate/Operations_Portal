@@ -20,11 +20,30 @@
         <h1>Sign in to continue</h1>
 
         <p>
-            Use your Dash MFB corporate credentials.
+            {% if sso_enabled %}
+                Sign in with your Dash MFB OCI account.
+            {% else %}
+                Use your Dash MFB corporate credentials.
+            {% endif %}
             Sessions expire after 15 minutes of inactivity.
         </p>
 
         {% include 'users/_messages.html' %}
+
+        {% if sso_enabled %}
+            <a class="btn btn-link"
+               href="{% url 'sso-login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">
+                Sign in with OCI
+            </a>
+
+            {# The password login stays, folded away. It is the way in for #}
+            {# anyone OCI does not know yet, and if OCI itself is down.     #}
+            <details class="admin-signin"{% if show_credentials %} open{% endif %}>
+                <summary>
+                    Administrator sign-in
+                </summary>
+                <div class="admin-signin-body">
+        {% endif %}
 
         <form method="post" action="{% url 'portal-login' %}" novalidate>
             {% csrf_token %}
@@ -45,7 +64,7 @@
                         type="email"
                         value="{{ email }}"
                         autocomplete="email"
-                        autofocus
+                        {% if not sso_enabled or show_credentials %}autofocus{% endif %}
                         required
                         placeholder="name.surname@dash-mfb.com"
                     >
@@ -88,6 +107,11 @@
                 Log in
             </button>
         </form>
+
+        {% if sso_enabled %}
+                </div>
+            </details>
+        {% endif %}
 
         <p class="auth-switch">
             Access is provided by your administrator.

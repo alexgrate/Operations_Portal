@@ -427,6 +427,50 @@ input:disabled{
 
 .auth-switch a:hover{ text-decoration: underline; }
 
+
+/* ---- Administrator sign-in ----
+   The password form, folded under the OCI button when single sign-on is on.
+   A native <details>, so it opens without any script.
+
+   Deliberately quiet: small, muted, normal weight, no border. OCI is the way
+   in for everyone; this is for administrators and for when OCI is down, so
+   it should read as a footnote rather than a second choice. */
+
+.admin-signin{ margin-top: 20px; }
+
+/* Plain centred text under the OCI button, the width of the button itself so
+   it sits on the same centre line whatever the label's length. */
+.admin-signin summary{
+    list-style: none;
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding: 6px 0;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 400;
+    transition: color var(--speed) ease;
+}
+
+.admin-signin summary::-webkit-details-marker{ display: none; }
+.admin-signin summary::marker{ content: ''; }
+
+.admin-signin summary:hover{ color: var(--ink-soft); }
+
+.admin-signin summary:focus-visible{
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.admin-signin-body{
+    margin-top: 16px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+
 .hidden{ display: none; }
 
 a:focus-visible,

@@ -1,12 +1,31 @@
+from urllib.parse import urlparse
+
+from django.conf import settings
 from django.urls import path
 
 from users import views as user_views
 
 from . import views
 
+# OCI sends people back to whatever redirect URL is registered on its
+# application, and OCI_SSO_REDIRECT_URI has to match that. Listening on the
+# path that setting names, as well as the default, means a registration that
+# chose a different path (/login/sso/callback/, say) is a .env change rather
+# than a 404 at the end of every sign-in.
+SSO_CALLBACK_PATH = urlparse(settings.OCI_SSO_REDIRECT_URI).path.lstrip('/')
+
+sso_callback_alias = (
+    [path(SSO_CALLBACK_PATH, user_views.sso_callback)]
+    if SSO_CALLBACK_PATH and SSO_CALLBACK_PATH != 'sso/callback/'
+    else []
+)
+
 urlpatterns = [
+    *sso_callback_alias,
     path('', views.login_view, name='portal-login'),
     path('logout/', views.logout_view, name='portal-logout'),
+    path('sso/login/', user_views.sso_start, name='sso-login'),
+    path('sso/callback/', user_views.sso_callback, name='sso-callback'),
 
     path('app/', views.home, name='portal-home'),
     path('app/q/<str:key>/', views.queue_view, name='queue'),

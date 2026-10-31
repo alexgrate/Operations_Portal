@@ -1,23 +1,119 @@
 """Staff onboarding: an Admin adds someone, they set their own password."""
+import logging
+import time
+
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth import views as auth_views
 from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
+from django.utils.crypto import constant_time_compare
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from portal.pagination import paginate
-from portal.views import management_required
+from portal.views import _safe_next, management_required
 
+from . import sso
+from .backends import EmailOrUsernameBackend
 from .forms import StaffForm, TeamForm
-from .models import Team, can_manage
+from .models import CORPORATE_DOMAIN, Team, can_manage
 from .tokens import invite_token_generator
+
+logger = logging.getLogger(__name__)
+
+SSO_SESSION_KEY = 'oci_sso_attempt'
+
+# Long enough to type a password and approve an MFA prompt, short enough that
+# a half-finished attempt left open on a shared desk goes stale.
+SSO_ATTEMPT_MAX_AGE = 10 * 60
+
+SSO_FAILED = 'Could not sign you in with OCI. Please try again.'
+
+
+@require_GET
+def sso_start(request):
+    """Send the browser to OCI to sign in."""
+    if request.user.is_authenticated:
+        return redirect('portal-home')
+    if not sso.is_enabled():
+        messages.error(request, 'Single sign-on is not set up on this portal.')
+        return redirect('portal-login')
+
+    attempt = sso.new_attempt()
+    try:
+        url = sso.auth_url(attempt, settings.OCI_SSO_REDIRECT_URI)
+    except sso.SsoError:
+        logger.exception('Could not start an OCI sign-in')
+        messages.error(request, SSO_FAILED)
+        return redirect('portal-login')
+
+    request.session[SSO_SESSION_KEY] = {
+        'state': attempt['state'],
+        'verifier': attempt['verifier'],
+        'next': _safe_next(request),
+        'started': time.time(),
+    }
+    return redirect(url)
+
+
+@require_GET
+def sso_callback(request):
+    """Where OCI sends the browser back, carrying a one-time code."""
+    # Popped, not read: each attempt can be completed once and only once.
+    attempt = request.session.pop(SSO_SESSION_KEY, None)
+    code = request.GET.get('code', '')
+    state = request.GET.get('state', '')
+
+    if request.GET.get('error'):
+        logger.info('OCI sign-in refused: %s', request.GET.get('error'))
+        messages.error(request, 'Sign-in with OCI was cancelled or refused.')
+        return redirect('portal-login')
+
+    if (
+        not attempt
+        or not code
+        or not constant_time_compare(state, attempt['state'])
+        or time.time() - attempt['started'] > SSO_ATTEMPT_MAX_AGE
+    ):
+        messages.error(request, 'That sign-in attempt has expired. Please try again.')
+        return redirect('portal-login')
+
+    try:
+        token = sso.exchange_code(code, attempt['verifier'], settings.OCI_SSO_REDIRECT_URI)
+        profile = sso.user_profile(token)
+    except sso.SsoError:
+        logger.exception('Could not complete an OCI sign-in')
+        messages.error(request, SSO_FAILED)
+        return redirect('portal-login')
+
+    # OCI vouches for who they are. Whether they may use the portal is still
+    # decided here: an existing, active, corporate account, the same three
+    # conditions the password login applies. Nobody is created on the fly.
+    email = profile['email']
+    user = None
+    if email.endswith(CORPORATE_DOMAIN):
+        matches = list(User.objects.filter(email__iexact=email)[:2])
+        if len(matches) == 1 and EmailOrUsernameBackend().user_can_authenticate(matches[0]):
+            user = matches[0]
+
+    if user is None:
+        logger.warning('OCI sign-in for %r matched no active portal account', email)
+        messages.error(
+            request,
+            f'There is no active portal account for {email or "that OCI user"}. '
+            'Ask your administrator for access.',
+        )
+        return redirect('portal-login')
+
+    auth_login(request, user, backend='users.backends.EmailOrUsernameBackend')
+    return redirect(attempt['next'] or reverse('portal-home'))
 
 
 def send_invite(request, user):

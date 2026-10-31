@@ -206,6 +206,10 @@ a{ color: inherit; text-decoration: none; }
 .topline h1{ font-size: 19px; letter-spacing: -.01em; flex: 1; }
 .topline-actions{ display: flex; gap: 8px; }
 
+/* A list row the task page's back arrow returns to (#task-<id>). Clears the
+   sticky .topline above, which would otherwise sit on top of the row. */
+.return-to{ scroll-margin-top: 96px; }
+
 .back{ color: var(--muted); margin-right: 2px; }
 .back:hover{ color: var(--ink); }
 

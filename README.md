@@ -176,6 +176,26 @@ needs the **`Mail.Send` _application_ permission** (not the delegated one) with
 That is the right setup for development: invite links and reminders still work,
 copied out of the console, and nothing real is sent by accident.
 
+### Single sign-on, through OCI IAM
+
+| Variable | What it does |
+| --- | --- |
+| `OCI_SSO_ISSUER_URL` | The identity domain URL, e.g. `https://idcs-….identity.oraclecloud.com` |
+| `OCI_SSO_CLIENT_ID` | Client ID of the confidential application |
+| `OCI_SSO_CLIENT_SECRET` | Its client secret |
+| `OCI_SSO_SCOPES` | Default `openid,email,profile` |
+| `OCI_SSO_REDIRECT_URI` | Default `SITE_URL` + `/sso/callback/`. Register exactly this on the OCI application |
+
+With the first three set, the login page leads with **Sign in with OCI** and
+folds the password form under **Administrator sign-in**. Leave them blank and
+the page is the password form alone.
+
+OCI only proves who someone is. They still need an active portal account with
+the same `@dash-mfb.com` address, onboarded the usual way: nobody is created
+at sign-in. The flow is in [`users/sso.py`](users/sso.py) - authorization code
+with PKCE, `state` held in the session so a callback only completes in the
+browser that started it.
+
 ### Reminders and digests
 
 | Variable | Default | What it does |
@@ -214,6 +234,7 @@ copied out of the console, and nothing real is sent by accident.
 | URL | Purpose |
 | --- | --- |
 | `/` | Sign in (email only) |
+| `/sso/login/`, `/sso/callback/` | Sign in through OCI IAM, when it is configured |
 | `/forgot-password/` | Request a reset link |
 | `/reset/<uidb64>/<token>/` | Choose a new password |
 | `/invite/<uidb64>/<token>/` | New starter sets their first password |
@@ -238,7 +259,7 @@ ending `@dash-mfb.com` is rejected, enforced by a `pre_save` signal in
 Staff never receive a password. An admin onboards them and the portal emails a
 single-use invite link, valid for 7 days, which they use to set their own.
 
-Sessions expire after **15 minutes** of inactivity. Reset links last 3 hours.
+Sessions expire after **15 minutes** of inactivity. Reset links last 1 hour.
 
 ### Attachments
 
