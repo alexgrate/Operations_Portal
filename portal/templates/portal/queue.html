@@ -26,8 +26,8 @@
 
 <div class="list">
     {% for task in tasks %}
-        <a class="row {% if task.urgency == 'overdue' %}row--overdue{% endif %}"
-           href="{% url 'task-detail' task.id %}">
+        <a class="row return-to {% if task.urgency == 'overdue' %}row--overdue{% endif %}"
+           id="task-{{ task.id }}" href="{% url 'task-detail' task.id %}">
 
             <span class="row-main">
                 <span class="row-title">{{ task.title }}</span>

@@ -174,7 +174,9 @@ else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
     DEFAULT_FROM_EMAIL = 'Dash MFB Operations Portal <no-reply@dash-mfb.com>'
 
-PASSWORD_RESET_TIMEOUT = 60 * 60 * 3
+# One hour. Long enough to open the email, short enough that a link left
+# sitting in an inbox is not a standing way into the account.
+PASSWORD_RESET_TIMEOUT = 60 * 60
 
 # Deadline reminders, sent by the send_task_reminders management command.
 #
@@ -182,6 +184,20 @@ PASSWORD_RESET_TIMEOUT = 60 * 60 * 3
 # links in the emails are built from SITE_URL. Get this wrong and every
 # reminder points somewhere useless.
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000').rstrip('/')
+
+# Single sign-on through OCI IAM. See users/sso.py.
+#
+# Leave the three below blank and the login page shows only the email and
+# password form, exactly as before. Fill them in and "Sign in with OCI"
+# becomes the main button, with the password form tucked under it.
+OCI_SSO_ISSUER_URL = os.environ.get('OCI_SSO_ISSUER_URL', '').strip().rstrip('/')
+OCI_SSO_CLIENT_ID = os.environ.get('OCI_SSO_CLIENT_ID', '').strip()
+OCI_SSO_CLIENT_SECRET = os.environ.get('OCI_SSO_CLIENT_SECRET', '').strip()
+OCI_SSO_SCOPES = env_list('OCI_SSO_SCOPES', 'openid,email,profile')
+
+# Must match the redirect URL registered on the OCI application character for
+# character, or OCI refuses the sign-in.
+OCI_SSO_REDIRECT_URI = os.environ.get('OCI_SSO_REDIRECT_URI', f'{SITE_URL}/sso/callback/')
 
 # Email somebody the moment work is assigned to them. Sent from the request
 # rather than the cron round: being told promptly is the whole point.
@@ -370,7 +386,7 @@ STATIC_URL = 'static/'
 
 # Appended to the stylesheet link so a changed CSS file is never served from
 # the browser cache. Bump when you edit the CSS.
-ASSET_VERSION = '15'
+ASSET_VERSION = '17'
 
 # Where `manage.py collectstatic` writes to. Run it on every deploy.
 STATIC_ROOT = BASE_DIR / 'staticfiles'

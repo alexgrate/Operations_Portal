@@ -1371,3 +1371,151 @@ class BackFromATaskTests(TestCase):
 
         response = self.client_.get(reverse('task-detail', args=[self.task.pk]))
         self.assertEqual(response.context['back_url'], completed)
+
+
+class SignedOffRecordIsFixedTests(TestCase):
+    """Once work is handed in, its ticks and files are the record.
+
+    These exist because the checklist view checked only "is this the
+    assignee", and the file-removal view only "uploader or any manager", so
+    both could rewrite a task after it had been signed off.
+    """
+
+    def setUp(self):
+        self.head = make_user('rec_head', Profile.ROLE_DEPT_HEAD, 'Chika')
+        self.lead = make_user('rec_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        self.other_lead = make_user('rec_lead2', Profile.ROLE_TEAM_LEAD, 'Ngozi')
+        self.staff = make_user('rec_staff', Profile.ROLE_STAFF, 'Tunde')
+        self.team = Team.objects.create(name='Record Team', lead=self.lead)
+        Team.objects.create(name='Other Team', lead=self.other_lead)
+        self.staff.profile.teams.add(self.team)
+        self.process = ProcessType.objects.create(
+            name='Record Process', target_hours=8, checklist=['First', 'Second'],
+            approval_level=ProcessType.APPROVAL_LEAD,
+        )
+        self.task = Task.objects.create(
+            title='Evidence', process_type=self.process, assignee=self.staff,
+            team=self.team, created_by=self.staff,
+            checklist_snapshot=['First', 'Second'], checklist_done={'0': True, '1': True},
+        )
+        self.attachment = Attachment.objects.create(
+            task=self.task, file=SimpleUploadedFile('proof.pdf', b'%PDF-1.4 pretend'),
+            original_name='proof.pdf', size=16, uploaded_by=self.staff,
+        )
+
+    def tearDown(self):
+        self.attachment.file.delete(save=False)
+
+    def client_for(self, user):
+        client = self.client_class()
+        self.assertTrue(client.login(username=user.email, password=PW))
+        return client
+
+    def at_stage(self, stage):
+        self.task.approval_stage = stage
+        self.task.save(update_fields=['approval_stage'])
+
+    def untick_first(self):
+        response = self.client_for(self.staff).post(
+            reverse('task-checklist', args=[self.task.pk]), {'index': '0'},
+        )
+        self.task.refresh_from_db()
+        return response
+
+    def remove(self, user):
+        return self.client_for(user).post(reverse('attachment-delete', args=[self.attachment.pk]))
+
+    def file_still_there(self):
+        return Attachment.objects.filter(pk=self.attachment.pk).exists()
+
+    # --- the checklist ------------------------------------------------------
+
+    def test_the_assignee_ticks_freely_while_working(self):
+        self.untick_first()
+        self.assertFalse(self.task.checklist_done['0'])
+
+    def test_ticks_are_fixed_while_in_review(self):
+        self.at_stage(Task.STAGE_LEAD_REVIEW)
+        self.assertEqual(self.untick_first().status_code, 403)
+        self.assertTrue(self.task.checklist_done['0'])
+
+    def test_ticks_are_fixed_after_sign_off(self):
+        self.at_stage(Task.STAGE_APPROVED)
+        self.assertEqual(self.untick_first().status_code, 403)
+        self.assertTrue(self.task.checklist_done['0'])
+
+    def test_work_sent_back_can_be_ticked_again(self):
+        self.at_stage(Task.STAGE_RETURNED)
+        self.untick_first()
+        self.assertFalse(self.task.checklist_done['0'])
+
+    # --- files ---------------------------------------------------------------
+
+    def test_the_uploader_can_remove_a_file_while_working(self):
+        self.remove(self.staff)
+        self.assertFalse(self.file_still_there())
+
+    def test_nobody_removes_a_file_once_submitted(self):
+        self.at_stage(Task.STAGE_LEAD_REVIEW)
+        for person in (self.staff, self.lead, self.head):
+            self.remove(person)
+        self.assertTrue(self.file_still_there())
+
+    def test_nobody_removes_a_file_after_sign_off(self):
+        self.at_stage(Task.STAGE_APPROVED)
+        for person in (self.staff, self.lead, self.head):
+            self.remove(person)
+        self.assertTrue(self.file_still_there())
+
+    def test_another_teams_lead_cannot_remove_a_file(self):
+        self.assertEqual(self.remove(self.other_lead).status_code, 403)
+        self.assertTrue(self.file_still_there())
+
+    def test_the_tasks_own_lead_can_remove_a_file(self):
+        self.remove(self.lead)
+        self.assertFalse(self.file_still_there())
+
+    def test_the_remove_button_is_hidden_once_submitted(self):
+        url = reverse('attachment-delete', args=[self.attachment.pk])
+        page = reverse('task-detail', args=[self.task.pk])
+        self.assertContains(self.client_for(self.staff).get(page), url)
+
+        self.at_stage(Task.STAGE_LEAD_REVIEW)
+        self.assertNotContains(self.client_for(self.staff).get(page), url)
+
+
+class BackArrowKeepsYourPlaceTests(TestCase):
+    """The back arrow lands on the row you clicked, not the top of the list."""
+
+    def test_the_arrow_and_the_row_share_an_anchor(self):
+        lead = make_user('place_lead', Profile.ROLE_TEAM_LEAD, 'Ada')
+        team = Team.objects.create(name='Place Team', lead=lead)
+        process = ProcessType.objects.create(name='Place Process', target_hours=4)
+        now = timezone.now()
+        task = Task.objects.create(
+            title='Somewhere down the list', process_type=process, assignee=lead,
+            team=team, created_by=lead, approval_stage=Task.STAGE_APPROVED,
+            submitted_at=now - timedelta(minutes=30), completed_at=now,
+        )
+        client = self.client_class()
+        self.assertTrue(client.login(username=lead.email, password=PW))
+
+        day = client.get(reverse('portal-day'))
+        self.assertContains(day, f'id="task-{task.pk}"')
+
+        detail = client.get(reverse('task-detail', args=[task.pk]))
+        self.assertContains(detail, f'href="/app/day/#task-{task.pk}"')
+
+
+class ErrorPageLinkTests(TestCase):
+    """The error pages' way back has to lead somewhere that exists.
+
+    They pointed at /dashboard/, which this portal never had, so the button
+    on a 404 led straight to another 404.
+    """
+
+    def test_the_404_page_links_to_the_task_board(self):
+        response = self.client.get('/no-such-page/')
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, f'href="{reverse("portal-home")}"', status_code=404)
+        self.assertNotContains(response, '/dashboard/', status_code=404)

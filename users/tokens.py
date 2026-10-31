@@ -6,6 +6,12 @@ from django.utils.http import base36_to_int
 
 
 class InviteTokenGenerator(PasswordResetTokenGenerator):
+    # Its own salt, so an invite token and a reset token are never the same
+    # string. Sharing Django's default made them interchangeable: a reset
+    # link opened at /invite/ instead stayed good for the 7-day invite
+    # window rather than the reset link's hour.
+    key_salt = 'users.tokens.InviteTokenGenerator'
+
     @property
     def timeout(self):
         return getattr(settings, 'INVITE_LINK_TIMEOUT', 7 * 24 * 60 * 60)
